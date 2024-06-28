@@ -1,0 +1,465 @@
+---
+title: "Sl3 Predictions -- DMF" 
+author: Casey Breen
+---
+
+Summary: 
+
+— On our training dataset, train machine learning algorithms to predict age of death using CenSoc-DMF mortality records.
+— On our test dataset, assess the performance of the machine learning algorithms on our hold-out datasets. 
+
+```{r}
+## library packages 
+library(here)
+library(data.table)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(origami)
+library(SuperLearner)
+library(sl3)
+library(doParallel)
+library(ggpubr)
+library(cowplot)
+
+## source custom functions 
+source("helpers.R")
+
+## parallel processing 
+## Run this if parallel gets stuck and won't turn off
+registerDoSEQ()
+unregister <- function() {
+  env <- foreach:::.foreachGlobals
+  rm(list=ls(name=env), pos=env)
+}
+
+## register clusters 
+cl <- makePSOCKcluster(8)
+registerDoParallel(cl)
+
+## read in training and test datasets 
+dmf_train <- read_rds(file = here("data/censoc_dmf_train_data_new.rds")) %>% 
+  drop_na() 
+
+dmf_holdout <- read_rds(file = here("data/censoc_dmf_test_data_new.rds")) %>%
+  drop_na() 
+
+# Calculate the number of NA values in each column of the dataframe
+na_counts <- dmf_train %>%
+  summarise(across(everything(), ~sum(is.na(.))))
+
+# Print the result
+print(na_counts)
+
+```
+
+
+```{r}
+## meta learner 
+sl <- Lrnr_sl$new(learners = stack, metalearner = Lrnr_nnls$new())
+
+## best support vector machine 
+best_svm <- Lrnr_svm$new(kernel = "linear", cost = 0.1, gamma = 1)
+
+# Create the best performing ranger learner
+best_ranger <- Lrnr_ranger$new(num.trees = 100, 
+                               mtry = 2, 
+                               min.node.size = 10, 
+                               sample.fraction = 0.8,
+                               importance = "impurity")
+
+# Define the individual learners
+learners_list <- list(
+  Lrnr_gbm$new(),
+  Lrnr_glm$new(),
+  Lrnr_xgboost$new(),
+  Lrnr_glmnet$new(),
+  Lrnr_mean$new(),
+  Lrnr_earth$new(),
+  best_svm,   # Assuming best_svm is defined as you showed
+  best_ranger # Assuming best_ranger is defined as you showed
+)
+
+# Create the stack with the specified learners
+stack <- Stack$new(learners_list)
+
+# specify the outcome and covariates
+outcome <- "death_age"
+covars <- colnames(dmf_train %>% 
+                     select(-death_age, -histid))
+
+# create the sl3 task
+superlearner_task <- make_sl3_Task(
+  data = dmf_train,
+  covariates = covars,
+  outcome = outcome,
+  outcome_type = "continuous")
+
+## make learner 
+sl <- make_learner(Lrnr_sl, 
+                   learners = stack,
+                   metalearner =  Lrnr_nnls$new())
+```
+
+## fit machine learning models 
+
+```{r}
+## Set the verbosity of sl3 to TRUE
+options(sl3.verbose = TRUE)
+
+# Record the start time
+start_time <- proc.time()
+
+# Train a superlearner model
+sl_fit <- sl$train(task = superlearner_task)
+
+## Save the trained model to a file
+write_rds(sl_fit, file = here("data/dmf_model.rds"))
+
+## Read the saved model from the file
+# sl_fit <- read_rds(file = here("data/dmf_model.rds"))
+
+# Calculate the runtime of the code
+runtime_sl_fit <- proc.time() - start_time
+
+# Print the runtime
+runtime_sl_fit
+
+# Print coefficients of the trained model to 3 decimal places
+round(sl_fit$coefficients, 3)
+```
+
+## Fit machine learning models 
+
+```{r}
+## CenSoc Sample 
+# Create a prediction task using the make_sl3_Task() function
+# - Set the data to dmf_holdout
+# - Specify the covariates to covars
+# - Set the outcome variable to outcome
+# - Specify the outcome type as "continuous"
+prediction_task <- make_sl3_Task(
+  data = dmf_holdout,
+  covariates = covars,
+  outcome = outcome,
+  outcome_type = "continuous")
+
+# Use the trained superlearner model (sl_fit) to make predictions on the prediction task
+sl_preds_new_task <- sl_fit$predict(task = prediction_task)
+
+# Calculate the correlation between the actual death ages (dmf_holdout$death_age) 
+# and the predicted values (sl_preds_new_task)
+cor(dmf_holdout$death_age, sl_preds_new_task)
+```
+
+## Make predictions 
+
+```{r}
+## make predictions
+df <- data.frame(
+  lm = sl_fit$learner_fits$Lrnr_glm_TRUE$predict(task = prediction_task),
+  xgboost = sl_fit$learner_fits$Lrnr_xgboost_20_1$predict(task = prediction_task),
+  ranger = sl_fit$learner_fits$Lrnr_ranger_100_TRUE_impurity_1_2_10_0.8$predict(task = prediction_task),  
+  gbm = sl_fit$learner_fits$Lrnr_gbm_10000_2_0.001$predict(task = prediction_task),
+  lasso = sl_fit$learner_fits$Lrnr_glmnet_NULL_deviance_10_1_100_TRUE_FALSE$predict(task = prediction_task),
+  mars = sl_fit$learner_fits$Lrnr_earth_2_3_backward_0_1_0_0$predict(task = prediction_task),
+  svm = sl_fit$learner_fits$Lrnr_svm_TRUE_NULL_linear_TRUE_FALSE_0.1_1$predict(task = prediction_task),
+  superlearner = sl_fit$predict(task = prediction_task),
+  observed_death_age = dmf_holdout$death_age)
+```
+
+## plot predictions 
+
+```{r}
+## pivot to long 
+df_long <- df %>% 
+  pivot_longer(!observed_death_age, names_to = "model", values_to = "estimate")
+
+## plot predictions 
+prediction_plots <- df_long %>% 
+  ggplot(aes(x=observed_death_age, y=estimate)) + 
+  geom_jitter(alpha = 0.06, size = 0.5) + 
+  geom_smooth() +
+  stat_cor(aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~"))) + 
+  labs(title = "Predicted vs. Observed Age of Death", 
+       x = "Actual Age of Death", 
+       y = "Predicted Age of Death") + 
+  theme_cowplot() + 
+  facet_wrap(~model)
+
+## save prediction plot (all algorithms)
+ggsave(plot = prediction_plots, filename = here("figures/06_prediction_plots_dmf.png"), height = 8, width = 8)
+
+## make predictions plot (superlearer only)
+prediction_plots_superlearner <- df_long %>% 
+  filter(model %in% "superlearner") %>% 
+  ggplot(aes(x=observed_death_age, y=estimate)) + 
+  #geom_point(alpha = 0.01) +
+  geom_jitter(alpha = 0.06, size = 0.5) + 
+  geom_smooth() +
+  stat_cor(
+   aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~"))) + 
+  labs(title = "Superlearner: Predicted vs. Observed Age of Death", 
+       x = "Actual Age of Death", 
+       y = "Predicted Age of Death") + 
+  theme_cowplot()
+
+## save plot 
+ggsave(plot = prediction_plots_superlearner, filename = here("figures/reserve/prediction_plots_superlearner_dmf.png"), height = 5, width = 8)
+```
+
+```{r}
+as.data.frame(cor(df)) %>%
+  rownames_to_column(var = "algorithm") %>%
+  mutate(r2 = round(observed_death_age^2, 4)) 
+  
+## variance explained plot 
+variance_explained_plot <- calculate_r_squared_holdout(df, "observed_death_age") %>% 
+  select(algorithm = model, r2 = r_squared) %>% 
+  # add_row(algorithm = "lm - 3", r2 = .0103) %>% 
+  filter(algorithm != "observed_death_age")  %>% 
+  ggplot(aes(x = reorder(algorithm, -r2),
+             y = r2,
+             label = paste0(round(r2, 3)))) + 
+  geom_col(color = "black", fill  = "grey") + 
+  geom_text(position = position_dodge(width = .9),    # move to center of bars
+              vjust = -0.5,    # nudge above top of bar
+              size = 4) + 
+  scale_y_continuous(limits = c(0, 0.015)) + 
+  theme_cowplot() + 
+  labs(x = "Algorithm",
+       y = expression (R^2),
+       title = bquote(bold("Algorithm Performance " (R^2))))
+
+##save plot 
+ggsave(plot = variance_explained_plot, filename = here("figures/reserve/variance_explained_plot_dmf.png"), height = 5, width = 8)
+
+```
+
+
+
+```{r}
+
+# ggsave(plot = variable_importance, filename = here("figures/reserve/variable_importance_dmf.png"), height = 8, width = 7)
+
+var_importance_df <- perform_validation(dmf_train, dmf_holdout, "death_age", dmf_train %>% select(-death_age, -histid) %>% colnames()) %>%
+  arrange(desc(r_squared)) %>%
+  mutate(feature = case_when(
+      feature == "educ_yrs" ~ "Education in Years",
+      feature == "presgl_recode" ~ "Occupational Prestige Score",
+      feature == "sei_recode" ~ "Socioeconomic Index Score",
+      feature == "wkswork1" ~ "Weeks Worked Last Year",
+      feature == "hrswork1" ~ "Hours Worked Last Week",
+      feature == "classwkr_self_employed_recode" ~ "Self-Employed Worker",
+      feature == "classwkr_wage_worker_recode" ~ "Wage Worker",
+      feature == "empstatd_employed_recode" ~ "Employment Status: Employeed",
+      feature == "occscore_recode" ~ "Occupational Score",
+      feature == "classwkr" ~ "Class of Worker",
+      feature == "renter_recode" ~ "Renter Status",
+      feature == "homeowner_recode" ~ "Home Ownership Status",
+      feature == "multgend_1gen_recode" ~ "Single Generation Household",
+      feature == "race_black_recode" ~ "Race: Black",
+      feature == "race_white_recode" ~ "Race: White",
+      feature == "nmothers" ~ "Number of Mothers",
+      feature == "incwage_recode" ~ "Wage and Salary Income",
+      feature == "farm_recode" ~ "Farm Residence",
+      feature == "nfathers" ~ "Number of Fathers",
+      feature == "migrate5_state_move_recode" ~ "State Migration",
+      feature == "migrate5_international_move_recode" ~ "International Migration",
+      feature == "multgend_2gen_recode" ~ "Two Generation Household",
+      feature == "numperhh_recode" ~ "Household Size",
+      feature == "hispan_recode" ~ "Hispanic Ethnicity",
+      feature == "multgend_3gen_recode" ~ "Three Generation Household",
+      feature == "marriage_divorced_recode" ~ "Divorced",
+      feature == "labforce_recode" ~ "Labor Force Participation",
+      feature == "metro_city_recode" ~ "Metro City",
+      feature == "marriage_widowed_recode" ~ "Widowed",
+      feature == "metro_suburb_recode" ~ "Metro Suburb",
+      feature == "nsibs" ~ "Number of Siblings",
+      feature == "marriage_single_recode" ~ "Single",
+      feature == "race_other_recode" ~ "Other Race",
+      feature == "rent" ~ "Rent",
+      feature == "countyicp" ~ "County Code",
+      feature == "metro_nonmetro_recode" ~ "Non-Metro Area",
+      feature == "marriage_married_recode" ~ "Married",
+      feature == "migrate5_country_move_recode" ~ "Country Migration",
+      feature == "ncouples" ~ "Number of Couples",
+      feature == "urban_recode" ~ "Urban-Rural Status",
+      feature == "nfams" ~ "Number of Families",
+      feature == "migrate5_same_house_recode" ~ "Same House as Last Year",
+      feature == "statefip" ~ "State FIP Code",
+      feature == "momloc_self_employed_recode" ~ "Self-Employed in Household",
+      TRUE ~ as.character(feature)  # Keep original name if no match
+    ))%>%
+  top_n(15)
+
+
+variable_importance <-  var_importance_df %>%
+  ggplot(aes(y = reorder(feature, r_squared), x = r_squared)) +
+  # geom_line(x = Predictor, y = `Relative Importance`) +
+  geom_point() +
+  theme_cowplot() +
+  geom_segment(aes(
+    y = feature,
+    yend = feature,
+    x = 0,
+    xend = r_squared
+  ),
+  size = 0.5
+  )  + # Draw dashed lines +
+  geom_segment(aes(
+    y = feature,
+    yend = feature,
+    x = 0,
+    xend = max(r_squared)
+  ),
+  linetype = "dashed",
+  size = 0.1
+  ) +  # Draw dashed lines
+  labs(x = "R-Squared",
+       y = "",
+       title = "Variable Importance")
+```
+
+
+
+
+
+
+## create combined plot
+
+```{r}
+## create top panel  
+top_panel <-  cowplot::plot_grid(variance_explained_plot, prediction_plots_superlearner, labels = "AUTO", nrow = 2)
+
+## combine panels 
+combined_plot_dmf <- cowplot::plot_grid(top_panel, variable_importance, labels = c("", "C"), rel_widths = c(1.2, 1))
+
+## save models 
+ggsave(plot = combined_plot_dmf, filename = here("figures/03_combined_plot_dmf.png"), width = 14, height = 7)
+```
+
+## 3-predictor model 
+
+```{r}
+## fit lm model 
+simple_3predictor_model <- lm(death_age ~ as.factor(educ_yrs) + incwage_recode + as.factor(presgl_recode), data = dmf_train)
+
+## make predictions 
+predictions <- predict(simple_3predictor_model, newdata = dmf_holdout)
+
+## calculate r^2
+cor(predictions, dmf_holdout$death_age)^2
+
+# Actual outcomes
+actual <- dmf_holdout$death_age
+
+# Predictions from your model
+# predictions <- model_predictions  # assuming predictions are stored in this variable
+
+# Calculate the Total Sum of Squares (SST)
+sst <- sum((actual - mean(actual))^2)
+
+# Calculate the Residual Sum of Squares (SSR)
+ssr <- sum((actual - predictions)^2)
+
+# Calculate R-squared
+r_squared <- 1 - (ssr / sst)
+
+# Print R-squared
+print(r_squared)
+```
+
+
+
+
+
+```{r}
+# # Calculate variable importance using permutation
+# censoc_varimp <- importance(fit = sl_fit, eval_fun = loss_squared_error, type = "permute")
+# 
+# ## variable importance
+# variable_importance <- censoc_varimp %>%
+#   mutate(feature = covariate) %>%
+#     arrange(desc(MSE_difference)) %>%
+#   slice_head(n = 15) %>%
+#   mutate(feature = case_when(
+#       feature == "educ_yrs" ~ "Education in Years",
+#       feature == "presgl_recode" ~ "Occupational Prestige Score",
+#       feature == "sei_recode" ~ "Socioeconomic Index Score",
+#       feature == "wkswork1" ~ "Weeks Worked Last Year",
+#       feature == "hrswork1" ~ "Hours Worked Last Week",
+#       feature == "classwkr_self_employed_recode" ~ "Self-Employed Worker",
+#       feature == "classwkr_wage_worker_recode" ~ "Wage Worker",
+#       feature == "empstatd_employed_recode" ~ "Employment Status: Employeed",
+#       feature == "occscore_recode" ~ "Occupational Score",
+#       feature == "classwkr" ~ "Class of Worker",
+#       feature == "renter_recode" ~ "Renter Status",
+#       feature == "homeowner_recode" ~ "Home Ownership Status",
+#       feature == "multgend_1gen_recode" ~ "Single Generation Household",
+#       feature == "race_black_recode" ~ "Race: Black",
+#       feature == "race_white_recode" ~ "Race: White",
+#       feature == "nmothers" ~ "Number of Mothers",
+#       feature == "incwage_recode" ~ "Wage and Salary Income",
+#       feature == "farm_recode" ~ "Farm Residence",
+#       feature == "nfathers" ~ "Number of Fathers",
+#       feature == "migrate5_state_move_recode" ~ "State Migration",
+#       feature == "migrate5_international_move_recode" ~ "International Migration",
+#       feature == "multgend_2gen_recode" ~ "Two Generation Household",
+#       feature == "numperhh_recode" ~ "Household Size",
+#       feature == "hispan_recode" ~ "Hispanic Ethnicity",
+#       feature == "multgend_3gen_recode" ~ "Three Generation Household",
+#       feature == "marriage_divorced_recode" ~ "Divorced",
+#       feature == "labforce_recode" ~ "Labor Force Participation",
+#       feature == "metro_city_recode" ~ "Metro City",
+#       feature == "marriage_widowed_recode" ~ "Widowed",
+#       feature == "metro_suburb_recode" ~ "Metro Suburb",
+#       feature == "nsibs" ~ "Number of Siblings",
+#       feature == "marriage_single_recode" ~ "Single",
+#       feature == "race_other_recode" ~ "Other Race",
+#       feature == "rent" ~ "Rent",
+#       feature == "countyicp" ~ "County Code",
+#       feature == "metro_nonmetro_recode" ~ "Non-Metro Area",
+#       feature == "marriage_married_recode" ~ "Married",
+#       feature == "migrate5_country_move_recode" ~ "Country Migration",
+#       feature == "ncouples" ~ "Number of Couples",
+#       feature == "urban_recode" ~ "Urban-Rural Status",
+#       feature == "nfams" ~ "Number of Families",
+#       feature == "migrate5_same_house_recode" ~ "Same House as Last Year",
+#       feature == "statefip" ~ "State FIP Code",
+#       feature == "momloc_self_employed_recode" ~ "Self-Employed in Household",
+#       TRUE ~ as.character(feature))) %>%   # Keep original name if no match
+# ggplot(aes(y = reorder(feature, MSE_difference), x = MSE_difference)) +
+#   # geom_line(x = Predictor, y = `Relative Importance`) +
+#   geom_point() +
+#   theme_cowplot() +
+#   geom_segment(aes(
+#     y = feature,
+#     yend = feature,
+#     x = 0,
+#     xend = MSE_difference
+#   ),
+#   size = 0.5
+#   )  + # Draw dashed lines +
+#   geom_segment(aes(
+#     y = feature,
+#     yend = feature,
+#     x = 0,
+#     xend = max(MSE_difference)
+#   ),
+#   linetype = "dashed",
+#   size = 0.1
+#   ) +  # Draw dashed lines
+#   labs(x = "Relative Importance",
+#        y = "",
+#        title = "Variable Importance")
+# 
+# ## save plot
+# ggsave(plot = variable_importance, filename = here("figures/variable_importance_dmf.png"), height = 8, width = 7)
+```
+
+
+```{r}
+sl_fit
+```
+

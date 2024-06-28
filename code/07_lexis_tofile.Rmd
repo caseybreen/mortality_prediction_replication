@@ -1,0 +1,125 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+
+## create lexis diagrams 
+lexis_grid <- function (year_start, year_end, age_start, age_end, delta = 1, 
+    lwd = 0.3, force_equal = TRUE) 
+{
+    if (!is.numeric(year_start)) {
+        stop("The value of year_start must be numeric.")
+    }
+    if (!is.numeric(year_end)) {
+        stop("The value of year_end must be numeric.")
+    }
+    if (!is.numeric(age_start)) {
+        stop("The value of age_start must be numeric.")
+    }
+    if (!is.numeric(age_end)) {
+        stop("The value of age_end must be numeric.")
+    }
+    if (year_start >= year_end) {
+        stop("The provided year_start is not earlier than the provided year_end.")
+    }
+    if (age_start >= age_end) {
+        stop("The provided age_start is not smaller than the provided age_end.")
+    }
+    year_start <- as.Date(paste(year_start, "-01-01", sep = ""))
+    year_end <- as.Date(paste(year_end, "-01-01", sep = ""))
+    year_seq <- seq(year_start, year_end, by = "year")
+    age_seq <- age_start:age_end
+    year_zero <- as.Date("1970-01-01")
+    diff_zero <- as.numeric(round((year_start - year_zero)/365.25))
+    diff_year <- as.numeric(round((year_end - year_start)/365.25))
+    diff_dia <- diff_year - 1
+    m <- merge(year_seq, age_seq)
+    lexis <- ggplot() + theme_bw()
+    lexis <- lexis + geom_blank(data = m, aes(x = .data$x, y = .data$y))
+    lexis <- lexis + geom_abline(intercept = seq(-diff_dia - 
+        100, diff_dia + 100, delta) - 1, slope = 1/365.25, lwd = lwd, color = "grey95")
+    lexis <- lexis + scale_x_date(breaks = year_seq[seq(1, length(year_seq), 
+        delta)], expand = c(0, 0), date_labels = "%Y")
+    lexis <- lexis + scale_y_continuous(expand = c(0, 0), breaks = age_seq[seq(1, 
+        length(age_seq), delta)])
+    lexis <- lexis + theme(panel.grid.major = element_line(colour = "grey95", 
+        size = lwd))
+    lexis <- lexis + theme(panel.grid.minor = element_blank())
+    lexis <- lexis + labs(x = "", y = "")
+    if (force_equal == TRUE) {
+        lexis <- lexis + coord_fixed(ratio = 365.25, xlim = c(year_start, 
+            year_end), ylim = c(age_start, age_end))
+    }
+    return(lexis)
+}
+
+## create lexis diagram cohorts 
+lexis <- lexis_grid(year_start = 1890, year_end = 2010, age_start = 0, age_end = 110, delta = 10)
+
+lexis <- lexis_cohort(lg = lexis, cohort = c(1905), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1906), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1907), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1908), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1909), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1910), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1911), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1912), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1913), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1914), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1915), fill = "#56B4E9") 
+
+## create lexis 
+p <- lexis
+
+## add 1920 census 
+p <- p + 
+  labs(x = "Year", y = "Age", "title" = "Analytical Sample") + 
+  theme(axis.text.x = element_text(angle = 90))
+
+p1 <- p
+
+## add 1940 census 
+p2 <- p1 + geom_vline(xintercept =  as.Date(paste(1940, "-01-01", sep = "")), color = "black", linetype = "dashed", size = .7) + 
+   annotate("text", x = as.Date(paste(1973, "-01-01", sep = "")), 
+                y = 20, label = "Observe Sociodemographic \n Covariates (1940 Census)", size= 3, 
+                colour = "black") +
+   annotate("segment", 
+           x = as.Date(paste(1948, "-01-01", sep = "")), xend = as.Date(paste(1941, "-01-01", sep = "")), y = 20, yend = 20,
+           arrow=arrow(length=unit(0.2, "cm")), color = "black", size = .7)
+
+## add mortality outcomes 
+p3 <- p2 + annotate("rect", xmin = as.Date(paste(2005, "-01-01", sep = "")), xmax = as.Date(paste(1975, "-01-01", sep = "")), ymin = 60, ymax = 110, alpha = .2, fill = "firebrick") + 
+   annotate("text", x = as.Date(paste(1957, "-01-01", sep = "")), 
+                y = 80, label = "Measure Mortality \n (Outcome)", size= 3, 
+                colour = "firebrick") +
+   annotate("segment", 
+           x = as.Date(paste(1970, "-01-01", sep = "")), xend = as.Date(paste(1975, "-01-01", sep = "")), y = 80, yend = 80,
+           arrow=arrow(length=unit(0.2, "cm")), color = "firebrick", size = .7)
+
+positions <- data.frame(x = c(as.Date(paste(1975, "-01-01", sep = "")), as.Date(paste(1975, "-01-01", sep = "")), as.Date(paste(2005, "-01-01", sep = "")), as.Date(paste(2005, "-01-01", sep = ""))),
+                        y = c(59, 70, 100, 90 ))
+
+p3 <- p3 + geom_polygon(aes(x = positions$x, y = positions$y), fill = "NA", color = "black", linetype = "dotted", size= .7)
+
+
+## write out plots 
+ggsave(plot = p1, here("figures/reserve_figures/lexis_diagram_1.png"), width = 7.5, height = 5.4)
+ggsave(plot = p2, here("figures/reserve_figures/lexis_diagram_2.png"), width = 7.5, height = 5.4)
+ggsave(plot = p3, here("figures/fig4_lexis_diagram.png"), width = 7.5, height = 5.4)
+```
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+

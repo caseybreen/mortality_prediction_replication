@@ -1,0 +1,232 @@
+---
+title: "Prep data"
+authors: Nathan Seltzer (UC Berkeley) and Casey Breen (UC Berkeley)
+date: October 10, 2022
+---
+
+## Description
+
+Prep data for the machine learning 
+
+(a) Import Data
+(b) Clean Data
+(c) Recode Variables 
+
+
+```{r}
+## library packages
+library(tidyverse) # for various helper functions, pipes, etc.
+library(data.table) # for quick import/export of data
+library(caret) # for ML model auto-tuning
+library(doParallel) # for parallel processing
+library(ipumsr) # for variable labels
+library(tidymodels) # for data partition
+library(here) # library here 
+source("helpers.R") ## source custom functions 
+
+`%notin%` <- Negate(`%in%`)
+
+### Import
+numident_linked <- fread("~/workspace/data/v3/censoc_numident_v3_linked.csv") %>%
+  janitor::clean_names()
+
+## select one cohort
+numident_linked_1910 <- numident_linked %>%
+  filter(byear == 1910) %>%
+  select(
+    histid, educd, sei, incwage, occscore, numperhh, sex, race, metro,
+    presgl, marst, citypop, nsibs, rent, hispan, classwkr, momloc, migrate5,
+    labforce, nfams, urban, farm, ownershpd, presgl, ncouples, nmothers, sex, 
+    nfathers, multgend, wkswork1, hrswork1, empstatd, death_age, statefip, countyicp
+  )
+```
+
+
+```{r}
+## recode education  
+numident_linked_1910 <- recode_education(numident_linked_1910, educ_var = "educd")
+
+## recode incwage 
+numident_linked_1910 <- numident_linked_1910 %>% 
+ mutate(incwage_recode = case_when(
+   incwage == 999998 ~ NA_real_,
+   TRUE ~ incwage
+ ))
+
+## recode sei  
+numident_linked_1910 <- numident_linked_1910 %>% 
+ mutate(sei_recode = case_when(
+   sei == 0 ~ 0,
+   TRUE ~ sei
+ ))
+
+## recode occscore   
+numident_linked_1910 <- numident_linked_1910 %>% 
+ mutate(occscore_recode = case_when(
+   occscore == 0 ~ 0,
+   TRUE ~ occscore
+ ))
+
+## recode numperhh
+numident_linked_1910 <- numident_linked_1910 %>% 
+ mutate(numperhh_recode = case_when(
+   numperhh > 20 ~ 20,
+   TRUE ~ numperhh
+ ))
+
+
+## recode numperhh
+numident_linked_1910 <- numident_linked_1910 %>% 
+ mutate(numperhh_recode = case_when(
+   numperhh > 20 ~ 20,
+   TRUE ~ numperhh
+ ))
+
+## recode presgl 
+numident_linked_1910 <- numident_linked_1910 %>% 
+  mutate(presgl_recode = case_when(
+    presgl == 0 ~ 0,
+    TRUE ~ presgl
+  ))
+
+## recode race 
+numident_linked_1910 <- numident_linked_1910 %>% 
+  mutate(race_white_recode = ifelse(race == 1, 1, 0),
+         race_black_recode = ifelse(race == 2, 1, 0),
+         race_other_recode = ifelse(race %in% 3:10, 1, 0))
+
+## recode metro 
+numident_linked_1910 <- numident_linked_1910 %>% 
+  mutate(metro_nometro_recode = ifelse(metro == 1, 1, 0),
+         metro_city_recode = ifelse(metro == 2, 1, 0),
+         metro_suburb_recode = ifelse(metro == 3, 1, 0))
+
+## recode marriage 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(marriage_married_recode = ifelse(marst %in% c(1:2), 1, 0),
+         marriage_divorced_recode = ifelse(marst %in% c(3:4), 1, 0),
+         marriage_widowed_recode = ifelse(marst == 5, 1, 0),
+         marriage_single_recode = ifelse(marst == 6, 1, 0))
+
+## recode renter 
+numident_linked_1910 <- numident_linked_1910 %>% 
+  mutate(renter_recode = case_when(rent > 0 ~ 1,
+                                  TRUE ~ 0))
+
+## recode hispan 
+numident_linked_1910 <- numident_linked_1910 %>% 
+  mutate(hispan_recode = case_when(hispan > 0 ~ 1,
+                                  TRUE ~ 0))
+
+## class worker 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(classwkr_self_employed_recode = ifelse(classwkr %in% c(1), 1, 0),
+         classwkr_wage_worker_recode = ifelse(classwkr %in% c(2), 1, 0))
+
+
+## nfams recode 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(nfams = case_when(nfams > 10 ~ 10,
+                                     TRUE ~ nfams))
+
+
+## lives with mother 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(momloc_recode = ifelse(momloc > 0, 1, 0))
+  
+## migration recode 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(migrate5_same_house_recode = ifelse(migrate5 == 1, 1, 0),
+         migrate5_state_move_recode = ifelse(migrate5 == 2, 1, 0),
+         migrate5_country_move_recode = ifelse(migrate5 == 3, 1, 0),
+         migrate5_international_move_recode = ifelse(migrate5 == 4, 1, 0))
+
+## urban recode 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(urban_recode = case_when(urban == 2 ~ 1,
+                                  TRUE ~ 0))
+
+## laborforce recode 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(labforce_recode = case_when(labforce == 2 ~ 1,
+                                  TRUE ~ 0))
+
+## farm recode 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(farm_recode = case_when(farm == 2 ~ 1,
+                                  TRUE ~ 0))
+
+## homeowner recode 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(homeowner_recode = case_when(ownershpd == 10 ~ 1,
+                                  TRUE ~ 0))
+
+## migration recode 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(multgend_1gen_recode = ifelse(multgend %in% c(10), 1, 0),
+         multgend_2gen_recode = ifelse(multgend %in% c(20:23), 1, 0),
+         multgend_3gen_recode = ifelse(multgend %in% c(30:32), 1, 0))
+
+## empstatd recode 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(empstatd_employed_recode = ifelse(empstatd %in% c(10:13), 1, 0))
+
+## sex recode 
+numident_linked_1910 <- numident_linked_1910 %>%  
+  mutate(sex_male = ifelse(sex %in% c(1), 1, 0)) 
+```
+
+
+## select predictors 
+
+```{r}
+numident_linked_1910_recode <- numident_linked_1910 %>% 
+  select(histid, nsibs, rent, renter_recode, hispan_recode, classwkr, nfams, nmothers, nfathers, ncouples, wkswork1, hrswork1, death_age, educ_yrs, incwage_recode, sei_recode, occscore_recode, numperhh_recode, presgl_recode, race_white_recode, race_black_recode, race_other_recode, metro_nometro_recode, metro_city_recode, metro_suburb_recode, marriage_married_recode, marriage_divorced_recode, marriage_widowed_recode, marriage_single_recode, classwkr_self_employed_recode, classwkr_wage_worker_recode, momloc_recode, migrate5_same_house_recode, migrate5_state_move_recode, migrate5_country_move_recode, migrate5_international_move_recode, urban_recode, labforce_recode, farm_recode, homeowner_recode, multgend_1gen_recode, multgend_2gen_recode, multgend_3gen_recode, empstatd_employed_recode,  statefip, sex_male, countyicp) 
+```
+
+
+```{r}
+colSums(is.na(numident_linked_1910_recode))
+```
+
+
+
+```{r}
+numident_linked_1910_recode <- numident_linked_1910_recode %>% drop_na()
+```
+
+
+
+
+```{r}
+## carry out recodes
+#dmf_linked_1910_recode <- dmf_linked_1910 %>% 
+#  recodes()
+
+## carry out recodes
+#dmf_linked_1910_recode <- dmf_linked_1910_recode %>% 
+#  drop_na()
+
+## normalize numeric variable 
+numident_linked_1910_recode <- numident_linked_1910_recode %>%
+   mutate(across(!death_age & !histid & !statefip & !countyicp, normalize))
+#   
+
+## select seeds
+set.seed(2232)
+
+## split data
+split <- initial_split(numident_linked_1910_recode, prop = 0.75) # set to .6
+censoc_numident_train_data <- training(split)
+censoc_numident_test_data <- testing(split)
+```
+
+
+
+
+```{r}
+## save data
+write_rds(x = censoc_numident_train_data, file = here("data/censoc_numident_train_data_new.rds"))
+write_rds(x = censoc_numident_test_data, file = here("data/censoc_numident_test_data_new.rds"))
+
+```

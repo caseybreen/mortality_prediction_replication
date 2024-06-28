@@ -1,0 +1,245 @@
+---
+title: "Aggregate Mortality Disparities Plot"
+author: Casey F. 
+---
+
+Summary: Create a plot with aggregate mortality disparities. 
+
+## library packages and read in data  
+
+```{r}
+## library packages
+library(tidyverse) # for various helper functions, pipes, etc.
+library(data.table) # for quick import/export of data
+library(caret) # for ML model auto-tuning
+library(doParallel) # for parallel processing
+library(ipumsr) # for variable labels
+library(tidymodels) # for data partition
+library(here)
+library(ggridges)
+library(cowplot)
+
+## read in data 
+dmf_linked <- fread("/data/censoc/censoc_data_releases/censoc_linked_to_census/v2.1/censoc_dmf_v2.1_linked.csv") %>%
+  janitor::clean_names()
+
+## select one cohort
+dmf_linked_1910 <- dmf_linked %>%
+  filter(link_abe_exact_conservative == 1) %>%
+  filter(byear == 1910) %>%
+  select(
+    histid, educd, incwage, death_age,
+  ) %>% censocdev::recode_education(educ_var = "educd") ## recode education g
+```
+
+## visualize 
+
+```{r}
+## Additional years of life expectancy by education
+educ_df <- dmf_linked_1910 %>% 
+  filter(!is.na(educ_yrs)) %>% 
+  mutate(educ_yrs_recode = case_when(
+    educ_yrs < 5 ~ "<5",
+    TRUE ~ as.character(educ_yrs)
+  )) %>% 
+  group_by(educ_yrs_recode) %>% 
+  summarize(death_age_educ = mean(death_age), sd = sd(death_age) * (1/sqrt(n())) ) %>% 
+    mutate(educ_yrs_recode = fct_relevel(educ_yrs_recode, c("<5", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"))) %>%
+  mutate(add_yrs_life = death_age_educ - min(death_age_educ)) %>% 
+  ungroup()
+
+## Education Plot
+educ_plot <- ggplot(data = educ_df, mapping = aes(x = educ_yrs_recode, y = add_yrs_life)) +
+ geom_vline(xintercept = c("12", "16"), lwd = .7, lty = 2, color = "grey", alpha = .5) + 
+  geom_pointrange(aes(ymin = add_yrs_life - 1.96*sd, ymax = add_yrs_life + 1.96*sd), fill = "white", shape = 21) +
+  theme_cowplot() + 
+ #  scale_x_continuous(breaks = seq(0, 23, 2)) +
+  labs(title = "Educational pattern of longevity",
+       x = "Years of Education",
+       y = "Additional years of life") 
+
+## Additional years of life expectancy by income decile
+income_df <- dmf_linked_1910 %>% 
+  filter(incwage > 0 & incwage < 5002) %>%
+  filter(!is.na(incwage)) %>% 
+  mutate(wage_decile = ntile(incwage, 10)) %>% 
+  group_by(wage_decile) %>% 
+  summarize(death_age_decile = mean(death_age), sd = sd(death_age) * (1/sqrt(n())) ) %>% 
+  mutate(add_yrs_life = death_age_decile - min(death_age_decile)) 
+
+## Income Plot
+income_plot <- ggplot(data = income_df, mapping = aes(x = wage_decile, y = add_yrs_life)) +
+  geom_pointrange(aes(ymin = add_yrs_life - 1.96*sd, ymax = add_yrs_life + 1.96*sd), fill = "white", shape = 21) +
+  labs(title = "Income pattern of longevity",
+       x = "Income Decile",
+       y = "Additional years of life") + 
+  theme_cowplot() + 
+  scale_x_continuous(breaks = seq(0, 10, 2))
+
+## create ridges plot 
+distribution_plot <- dmf_linked_1910 %>% 
+    filter(!is.na(educ_yrs)) %>% 
+  mutate(educ_recode = case_when(
+    educ_yrs %in% 0:11 ~ "No High School",
+    educ_yrs %in% 12:15 ~ "High School",
+    educ_yrs %in% 16:17 ~ "College",
+  )) %>% 
+  ggplot(aes(x = death_age, y = as.factor(educ_recode), fill = stat(x))) +
+  geom_density_ridges_gradient(scale = 1, rel_min_height = .01) +
+  scale_fill_viridis_c(name = "Death Age", option = "C") +
+  labs(title = 'Distribution of age of death by educational attainment',
+       x = "Death Age",
+       y = "Education Attainment") + 
+  theme_cowplot() + 
+  theme(legend.position = "none")
+
+
+## combine plots 
+aggregate_plots <- plot_grid(educ_plot, income_plot, labels = "AUTO")
+
+## create final plot 
+final_plot <- plot_grid(aggregate_plots, distribution_plot, 
+                        nrow = 2,
+                        labels = c("", "C"))
+
+## final plot 
+ggsave(plot = aggregate_plots, filename = here("figures/02a_aggregate_disparities_plot.png"), height = 5, width = 12)
+```
+
+
+
+```{r}
+set.seed(47)
+
+# Binning using case_when
+dmf_linked_1910 <- dmf_linked_1910 %>% 
+  mutate(education_level = case_when(
+    educ_yrs >= 0  & educ_yrs <= 6 ~ "Elementary",
+    educ_yrs >= 7  & educ_yrs <= 8 ~ "Middle",
+    educ_yrs >= 9  & educ_yrs <= 11 ~ "Some HS",
+    educ_yrs >= 12  & educ_yrs <= 15 ~ "High School",
+    educ_yrs >= 16   ~ "College",
+  TRUE                             ~ "Other"
+  ))
+
+# Sample data
+sample <- dmf_linked_1910 %>% 
+    filter(education_level != "Other") %>% 
+  sample_frac(.05)
+
+# Reorder levels based on mean of death_age
+mean <- sample %>% 
+  group_by(education_level) %>% 
+  summarise(mean_death_age = mean(death_age, na.rm = TRUE),
+            sd_death_age = sd(death_age, na.rm = TRUE) / sqrt(n()))
+
+
+## this vector might be useful for other plots/analyses
+level_order <- c("Elementary", "Middle", "Some HS", "High School", "College") 
+viridis_colors <- viridis::viridis(length(level_order), direction = 1)
+names(viridis_colors) <- level_order
+
+
+
+# educ full 
+educ_full <- sample %>% 
+  ggplot() + 
+  geom_jitter(alpha = 0.4, aes(x = factor(education_level, levels = level_order), y = death_age, color = education_level)) +
+  geom_pointrange(data = mean, color = "black", aes(x = factor(education_level, levels = level_order),
+                                   y = mean_death_age,
+                                   ymin = mean_death_age - 1.96*sd_death_age,
+                                   ymax = mean_death_age + 1.96*sd_death_age), 
+                  fill = "white", shape = 21) + 
+  theme_cowplot() + 
+  scale_color_manual(values = viridis_colors) + 
+  labs(x = "Education",
+       y = "Death Age") + 
+  theme(legend.position = "none") + 
+  geom_hline(yintercept = c(76.5, 81), linetype = "dashed") + 
+  panel_border() +
+  background_grid()
+
+
+
+# educ small 
+educ_small <- sample %>% 
+  ggplot() + 
+  #geom_jitter(alpha = 0.1, aes(x = factor(education_level, level = level_order), y = death_age)) +
+  geom_pointrange(data = mean, color = "black", aes(x = factor(education_level, level = level_order),
+                                   y = mean_death_age,
+                                   ymin = mean_death_age - 1.96*sd_death_age,
+                                   ymax = mean_death_age + 1.96*sd_death_age), 
+                  fill = "white", shape = 21) + 
+  theme_cowplot() + 
+  labs(x = "Education",
+       y = "Death Age") + 
+  theme(legend.position = NULL) + 
+  ylim(76.5, 81) + 
+    panel_border() +
+  background_grid()
+
+
+# Sample data
+sample <- dmf_linked_1910 %>% 
+    filter(!is.na(incwage)) %>% 
+    filter(incwage > 0 & incwage < 5002) %>%
+  sample_frac(.05)
+
+# Reorder levels based on mean of death_age
+mean_income <- sample %>% 
+  mutate(wage_bin = ntile(incwage, 5)) %>% 
+  group_by(wage_bin) %>% 
+  summarise(mean_death_age = mean(death_age, na.rm = TRUE),
+            sd_death_age = sd(death_age, na.rm = TRUE) / sqrt(n()))
+
+# inc full 
+inc_full <- sample %>% 
+  mutate(wage_bin = ntile(incwage, 5)) %>% 
+  ggplot() + 
+  geom_jitter(alpha = 0.4, aes(x = as.factor(wage_bin), y = death_age, color = as.factor(wage_bin))) +
+  geom_pointrange(data = mean_income, color = "black", 
+                  aes(x = as.factor(wage_bin), 
+                      y = mean_death_age,
+                      ymin = mean_death_age - 1.96*sd_death_age,
+                      ymax = mean_death_age + 1.96*sd_death_age), 
+                  fill = "white", shape = 21) + 
+  theme_cowplot() + 
+  scale_color_viridis_d(option = "viridis") + 
+  scale_x_discrete(labels = c("1 (Low)", "2", "3", "4", "5 (High)")) +
+  labs(x = "Income Quintile",
+       y = "Death Age") + 
+  theme(legend.position = "none") + 
+  geom_hline(yintercept = c(76.5, 81), linetype = "dashed", color = "black") + 
+  panel_border() +
+  background_grid()
+
+# inc small 
+inc_small <- sample %>% 
+  mutate(wage_bin = ntile(incwage, 5)) %>% 
+  ggplot() + 
+  geom_pointrange(data = mean_income, color = "black", 
+                  aes(x = as.factor(wage_bin), 
+                      y = mean_death_age,
+                      ymin = mean_death_age - 1.96*sd_death_age,
+                      ymax = mean_death_age + 1.96*sd_death_age), 
+                  fill = "white", shape = 21) +   theme_cowplot() + 
+  scale_color_viridis_d() + 
+    scale_x_discrete(labels = c("1 (Low)", "2", "3", "4", "5 (High)")) +
+  labs(x = "Income Quintile",
+       y = "Death Age") + 
+  theme(legend.position = "none") + 
+  ylim(76.5, 81) + 
+    panel_border() +
+  background_grid()
+```
+
+
+
+```{r}
+## heterogeneity plot 
+heterogeneity_plot <- cowplot::plot_grid(educ_small, educ_full, inc_small, inc_full)
+
+## save plot 
+ggsave(plot = heterogeneity_plot, filename  = here("figures/02b_heterogeneity_stochasticity.png"), width = 12, heigh = 8)
+```
+

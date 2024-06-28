@@ -1,0 +1,188 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+# Define hyperparameter grid
+num.trees.options <- c(100, 500, 1000)
+mtry.options <- c(2, 3, 4)
+min.node.size.options <- c(1, 5, 10)
+sample.fraction.options <- c(0.65, 0.8, 1)
+
+ranger_nt_100_mtry_2_minsz_10_sampfr_0.8	
+
+```
+
+
+
+```{r}
+# Create list to hold all ranger learners
+ranger_learners <- list()
+
+# Generate learners for each combination of hyperparameters
+for (nt in num.trees.options) {
+  for (mtry in mtry.options) {
+    for (min.node.size in min.node.size.options) {
+      for (sample.fraction in sample.fraction.options) {
+        learner_label <- paste("ranger_nt", nt, "mtry", mtry, "minsz", min.node.size, "sampfr", sample.fraction, sep="_")
+        ranger_learners[[learner_label]] <- Lrnr_ranger$new(num.trees = nt, mtry = mtry, 
+                                                            min.node.size = min.node.size, 
+                                                            sample.fraction = sample.fraction, 
+                                                            importance = "impurity")
+      }
+    }
+  }
+}
+
+# Create the best performing ranger learner
+best_ranger <- Lrnr_ranger$new(num.trees = 100, 
+                               mtry = 2, 
+                               min.node.size = 10, 
+                               sample.fraction = 0.8,
+                               importance = "impurity")
+
+mean_learner <- Lrnr_mean$new() # That is one mean learner!
+
+
+```
+
+
+```{r}
+## stack 
+stack <- make_learner(
+  Stack,
+  best_ranger, 
+  mean_learner
+)
+
+
+
+# Metalearner
+metalearner <- Lrnr_nnls$new()
+
+# Super Learner
+sl_model <- Lrnr_sl$new(learners = best_ranger, metalearner = metalearner)
+
+
+# specify the outcome and covariates
+outcome <- "death_age"
+covars <- colnames(dmf_train %>% 
+                     select(-death_age, -histid))
+
+# create the sl3 task
+superlearner_task <- make_sl3_Task(
+  data = dmf_train,
+  covariates = covars, 
+  outcome = outcome,
+  outcome_type = "continuous")
+
+## make learner 
+sl <- make_learner(Lrnr_sl, 
+                   learners = stack,
+                   metalearner =  Lrnr_nnls$new())
+```
+
+
+```{r}
+## Set the verbosity of sl3 to TRUE
+options(sl3.verbose = TRUE)
+
+# Record the start time
+start_time <- proc.time()
+
+# Train a superlearner model
+sl_fit <- sl$train(task = superlearner_task)
+
+## Save the trained model to a file
+write_rds(sl_fit, file = here("data/dmf_model.rds"))
+
+## Read the saved model from the file
+# sl_fit <- read_rds(file = here("data/dmf_model.rds"))
+
+# Calculate the runtime of the code
+runtime_sl_fit <- proc.time() - start_time
+
+# Print the runtime
+runtime_sl_fit
+
+# Print coefficients of the trained model to 3 decimal places
+round(sl_fit$coefficients, 3)
+```
+
+```{r}
+# Create the best performing ranger learner
+best_ranger <- Lrnr_ranger$new(num.trees = 100, 
+                               mtry = 2, 
+                               min.node.size = 10, 
+                               sample.fraction = 0.8,
+                               importance = "impurity")
+```
+
+
+
+
+```{r}
+# Grid of parameters to search over
+cost_values <- c(0.1, 1, 10)
+gamma_values <- c(0.01, 0.1, 1)
+
+# Generate SVM learners with varying hyperparameters
+svm_learners <- lapply(cost_values, function(cost) {
+  lapply(gamma_values, function(gamma) {
+    Lrnr_svm$new(cost = cost, gamma = gamma, kernel = "linear")
+  })
+})
+
+svm_learners
+
+# Flatten the list of learners
+svm_learners <- do.call(c, svm_learners)
+
+svm_learners[[10]] <- "Lrnr_mean"
+```
+
+
+
+```{r}
+# Stack the SVM learners
+svm_stack <- Stack$new(svm_learners)
+```
+
+
+```{r}
+## make learner 
+sl <- make_learner(Lrnr_sl, 
+                   learners = svm_stack,
+                   metalearner =  Lrnr_nnls$new())
+```
+
+
+
+```{r}
+## Set the verbosity of sl3 to TRUE
+options(sl3.verbose = TRUE)
+
+# Record the start time
+start_time <- proc.time()
+
+# Train a superlearner model
+sl_fit <- sl$train(task = superlearner_task)
+
+## Save the trained model to a file
+write_rds(sl_fit, file = here("data/dmf_model.rds"))
+
+## Read the saved model from the file
+# sl_fit <- read_rds(file = here("data/dmf_model.rds"))
+
+# Calculate the runtime of the code
+runtime_sl_fit <- proc.time() - start_time
+
+# Print the runtime
+runtime_sl_fit
+
+# Print coefficients of the trained model to 3 decimal places
+round(sl_fit$coefficients, 3)
+```
+

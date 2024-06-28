@@ -1,0 +1,195 @@
+---
+title: "Construct BUNMD"
+---
+
+Summary: this notebook contains code to construct the BUNMD. 
+
+```{r}
+## library packages 
+library(SuperLearner)
+library(gridExtra)
+library(ggpubr)
+library(class)
+library(cowplot)
+library(gbm)
+library(tidyverse)
+library(here)
+library(doParallel)
+library(ranger)
+library(xgboost)
+library(glmnet)
+```
+
+
+```{r}
+## import data 
+y_train <- read_rds(file = here("data/y_train.rds"))
+y_holdout <- read_rds(file = here("data/y_holdout.rds"))
+x_train <- read_rds(file = here("data/x_train.rds"))
+x_holdout <- read_rds(file = here("data/x_holdout.rds"))
+```
+
+
+
+```{r}
+set.seed(1)
+
+## Run this if parallel gets stuck and won't turn off
+registerDoSEQ()
+unregister <- function() {
+  env <- foreach:::.foreachGlobals
+  rm(list=ls(name=env), pos=env)
+}
+
+cl <- makePSOCKcluster(2)
+registerDoParallel(cl)
+
+
+# sl = SuperLearner(Y = y_train, X = x_train, family = gaussian(),
+#                   SL.library = c("SL.lm", "SL.xgboost", "SL.ranger", "SL.gbm", "SL.ridge", "SL.glmnet", "SL.ksvm", "SL.mean"))
+
+# sl = SuperLearner(Y = y_train, X = x_train, family = gaussian(),
+#                    SL.library = c("SL.lm", "SL.glmnet", "SL.earth", "SL.glm.interaction"))
+
+sl = SuperLearner(Y = y_train, X = x_train, family = gaussian(),
+                   SL.library = c("SL.lm", "SL.glmnet", "interaction"))
+
+
+# Turn off parallel processing
+stopCluster(cl)
+
+pred = predict(sl, x_holdout)
+
+cor(pred$pred, y_holdout)
+
+cor(pred$library.predict[,1], y_holdout) #lm only
+cor(pred$library.predict[,2], y_holdout) #glmnet only
+cor(pred$library.predict[,3], y_holdout) #xgboost only
+cor(pred$library.predict[,4], y_holdout) #ranger (random forest) only
+cor(pred$library.predict[,5], y_holdout)
+
+df <- data.frame(#lm = pred$library.predict[,1],
+  #glmnet = pred$library.predict[,2],
+  lm = pred$library.predict[,1],
+  xgboost = pred$library.predict[,2],
+  ranger = pred$library.predict[,3],
+  gbm = pred$library.predict[,4],
+  ridge = pred$library.predict[,5],
+  lasso = pred$library.predict[,6],
+  svm = pred$library.predict[,7],
+  SuperLearner = pred$pred,
+  y_holdout)
+
+
+df_long <- df %>% 
+  pivot_longer(!y_holdout, names_to = "model", values_to = "estimate")
+
+prediction_plots <- df_long %>% 
+  filter(!model %in% "SuperLearner") %>% 
+  ggplot(aes(x=y_holdout, y=estimate)) + 
+  geom_point() +
+  geom_jitter() + 
+  geom_smooth() +
+  stat_cor(aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~"))) + 
+  labs(title = "Predicted vs. Observed Age of Death", 
+       x = "Actual Age of Death", 
+       y = "Predicted Age of Death") + 
+  theme_cowplot() + 
+  facet_wrap(~model)
+
+ggsave(plot = prediction_plots, filename = here("figures/prediction_plots.png"), height = 8, width = 8)
+
+prediction_plots_superlearner <- df_long %>% 
+  filter(model %in% "SuperLearner") %>% 
+  ggplot(aes(x=y_holdout, y=estimate)) + 
+  geom_point() +
+  geom_jitter() + 
+  geom_smooth() +
+  stat_cor(
+   aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~"))) + 
+  labs(title = "Superlearner: Predicted vs. Observed Age of Death", 
+       x = "Actual Age of Death", 
+       y = "Predicted Age of Death") + 
+  theme_cowplot()
+
+ggsave(plot = prediction_plots_superlearner, filename = here("figures/prediction_plots_superlearner.png"), height = 5, width = 8)
+```
+
+```{r}
+variable_importance <- summary.gbm(sl$fitLibrary$SL.gbm_All$object) %>% 
+  top_n(15) %>% 
+  mutate(variable = case_when(
+    var == "SEX" ~ "Sex",
+    var == "EDUCD" ~ "Education (Detailed)",
+    var == "NUMPERHH" ~ "Household Size",
+    var == "INCWAGE" ~ "Wage and Salary Income",
+    var == "RENT" ~ "Rent",
+    var == "SEI" ~ "Socioeconomic Index Score",
+    var == "HRSWORK1" ~ "Hours Worked (Last Week)",
+    var == "MARST" ~ "Marital Status",
+    var == "HISPAN" ~ "Hispanic",
+    var == "CITYPOP" ~ "City Population",
+    var == "OCCSCORE" ~ "Occupational Income Score",
+    var == "PRESGL" ~ "Occupational Prestige Score",
+    var == "WKSWORK1" ~"Weeks Worked (Last Year)", 
+    var == "RACE" ~ "Race",
+    var == "NSIBS" ~ "Number Sibs in Household"
+  )) %>% 
+ggplot(aes(y = reorder(variable, rel.inf), x = rel.inf)) + 
+  # geom_line(x = Predictor, y = `Relative Importance`) + 
+  geom_point() + 
+  theme_cowplot() +
+  geom_segment(aes(
+    y = variable,
+    yend = variable,
+    x = 0,
+    xend = rel.inf
+  ),
+  size = 0.5
+  )  + # Draw dashed lines +
+  geom_segment(aes(
+    y = variable,
+    yend = variable,
+    x = 0,
+    xend = 35
+  ),
+  linetype = "dashed",
+  size = 0.1
+  ) +  # Draw dashed lines
+  labs(x = "Relative Importance",
+       y = "",
+       title = "Variable Importance")
+```
+
+
+```{r}
+variance_explained_plot <- as.data.frame(cor(df)) %>% 
+  rownames_to_column(var = "algorithm") %>% 
+  mutate(r2 = y_holdout^2) %>% 
+  select(algorithm, r2) %>% 
+  filter(algorithm != "y_holdout")  %>% 
+  ggplot(aes(x = reorder(algorithm, -r2),
+             y = r2,
+             label = scales::percent(round(r2, 4)))) + 
+  geom_col(color = "black", fill  = "grey") + 
+  geom_text(position = position_dodge(width = .9),    # move to center of bars
+              vjust = -0.5,    # nudge above top of bar
+              size = 4) + 
+  scale_y_continuous(labels = scales::percent, limits = c(0, 0.015)) + 
+  theme_cowplot() + 
+  labs(x = "Algorithm",
+       y = expression ("Variance Explained (%)"),
+       title = bquote(bold("Algorithm Performance " (R^2))))
+```
+
+
+```{r}
+left_side <-  cowplot::plot_grid(variance_explained_plot, prediction_plots_superlearner, labels = "AUTO", nrow = 2)
+
+combined_plot <- cowplot::plot_grid(left_side, variable_importance, labels = c("", "C"), rel_widths = c(1.2, 1) )
+
+ggsave(plot = combined_plot, filename = here("figures/combined_plot.png"), width = 14, height = 7)
+```
+
+
+

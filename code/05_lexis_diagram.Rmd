@@ -1,0 +1,151 @@
+---
+title: "Create Lexis diagram"
+author: "Casey Breen"
+---
+
+Summary: This code creates a Lexis diagram illustrating our sample timeline. 
+
+This code generates: 
+
+- Figure 5
+
+```{r}
+## Load helper functions and library all packages used for analysis
+library(here)
+source(here("code/helpers.R"))
+```
+
+## Create Lexis Diagrams
+
+```{r}
+## create lexis diagrams 
+lexis_grid <- function (year_start, year_end, age_start, age_end, delta = 1, 
+    lwd = 0.3, force_equal = TRUE) 
+{
+    if (!is.numeric(year_start)) {
+        stop("The value of year_start must be numeric.")
+    }
+    if (!is.numeric(year_end)) {
+        stop("The value of year_end must be numeric.")
+    }
+    if (!is.numeric(age_start)) {
+        stop("The value of age_start must be numeric.")
+    }
+    if (!is.numeric(age_end)) {
+        stop("The value of age_end must be numeric.")
+    }
+    if (year_start >= year_end) {
+        stop("The provided year_start is not earlier than the provided year_end.")
+    }
+    if (age_start >= age_end) {
+        stop("The provided age_start is not smaller than the provided age_end.")
+    }
+    year_start <- as.Date(paste(year_start, "-01-01", sep = ""))
+    year_end <- as.Date(paste(year_end, "-01-01", sep = ""))
+    year_seq <- seq(year_start, year_end, by = "year")
+    age_seq <- age_start:age_end
+    year_zero <- as.Date("1970-01-01")
+    diff_zero <- as.numeric(round((year_start - year_zero)/365.25))
+    diff_year <- as.numeric(round((year_end - year_start)/365.25))
+    diff_dia <- diff_year - 1
+    m <- merge(year_seq, age_seq)
+    lexis <- ggplot() + theme_bw()
+    lexis <- lexis + geom_blank(data = m, aes(x = .data$x, y = .data$y))
+    lexis <- lexis + geom_abline(intercept = seq(-diff_dia - 
+        100, diff_dia + 100, delta) - 1, slope = 1/365.25, lwd = lwd, color = "grey95")
+    lexis <- lexis + scale_x_date(breaks = year_seq[seq(1, length(year_seq), 
+        delta)], expand = c(0, 0), date_labels = "%Y")
+    lexis <- lexis + scale_y_continuous(expand = c(0, 0), breaks = age_seq[seq(1, 
+        length(age_seq), delta)])
+    lexis <- lexis + theme(panel.grid.major = element_line(colour = "grey95", 
+        size = lwd))
+    lexis <- lexis + theme(panel.grid.minor = element_blank())
+    lexis <- lexis + labs(x = "", y = "")
+    if (force_equal == TRUE) {
+        lexis <- lexis + coord_fixed(ratio = 365.25, xlim = c(year_start, 
+            year_end), ylim = c(age_start, age_end))
+    }
+    return(lexis)
+}
+
+## create lexis diagram cohorts 
+lexis <- lexis_grid(year_start = 1890, year_end = 2020, age_start = 0, age_end = 110, delta = 10)
+
+lexis <- lexis_cohort(lg = lexis, cohort = c(1905), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1906), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1907), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1908), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1909), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1910), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1911), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1912), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1913), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1914), fill = "#56B4E9")
+lexis <- lexis_cohort(lg = lexis, cohort = c(1915), fill = "#56B4E9") 
+
+## create lexis 
+p <- lexis
+
+## add 1920 census 
+p <- p + 
+  labs(x = "Year", y = "Age", "title" = "Cohort perspective") + 
+  theme(axis.text.x = element_text(angle = 90))
+
+
+## add 1940 census 
+p2 <- p + geom_vline(xintercept =  as.Date(paste(1940, "-01-01", sep = "")), color = "#56B4E9", linetype = "dashed", size = .7) + 
+   annotate("text", x = as.Date(paste(1963, "-01-01", sep = "")), 
+                y = 20, label = "Observe Predictors", size= 3, 
+                colour = "#56B4E9") +
+   annotate("segment", 
+           x = as.Date(paste(1948, "-01-01", sep = "")), xend = as.Date(paste(1941, "-01-01", sep = "")), y = 20, yend = 20,
+           arrow=arrow(length=unit(0.2, "cm")), color = "#56B4E9", size = .7)
+
+## add mortality outcomes 
+p3 <- p2 + annotate("rect", xmin = as.Date(paste(2005, "-01-01", sep = "")), xmax = as.Date(paste(1975, "-01-01", sep = "")), ymin = 60, ymax = 110, alpha = .2, fill = "firebrick") + 
+   annotate("text", x = as.Date(paste(1957, "-01-01", sep = "")), 
+                y = 80, label = "Observe Mortality", size= 3, 
+                colour = "firebrick") +
+   annotate("segment", 
+           x = as.Date(paste(1970, "-01-01", sep = "")), xend = as.Date(paste(1975, "-01-01", sep = "")), y = 80, yend = 80,
+           arrow=arrow(length=unit(0.2, "cm")), color = "firebrick", size = .7)
+
+positions <- data.frame(x = c(as.Date(paste(1975, "-01-01", sep = "")), as.Date(paste(1975, "-01-01", sep = "")), as.Date(paste(2005, "-01-01", sep = "")), as.Date(paste(2005, "-01-01", sep = ""))),
+                        y = c(59, 70, 100, 90 ))
+
+lexis_cohort <- p3 + geom_polygon(aes(x = positions$x, y = positions$y), fill = "NA", color = "black", linetype = "dotted", size= .7)
+
+## write out plots 
+ggsave(plot = p3, here("figures/mortality_lexis_diagram.png"), width = 7.5, height = 5.4) 
+
+
+
+lexis_period <- lexis_grid(year_start = 1890, year_end = 2020, age_start = 0, age_end = 110, delta = 10) + 
+  annotate("rect", xmin = as.Date(paste(2008, "-01-01", sep = "")), xmax = as.Date(paste(2014, "-01-01", sep = "")), ymin = 52, ymax = 104, alpha = .2, fill = "firebrick") + 
+   annotate("text", x = as.Date(paste(2000, "-01-01", sep = "")), 
+                y = 40, label = "Observe Mortality", size= 3, 
+                colour = "firebrick") +
+   annotate("segment", 
+           x = as.Date(paste(2000, "-01-01", sep = "")), xend = as.Date(paste(2012, "-01-01", sep = "")), y = 43, yend = 53,
+           arrow=arrow(length=unit(0.2, "cm")), color = "firebrick", size = .7) + 
+   annotate("rect", xmin = as.Date(paste(1992, "-01-01", sep = "")), xmax = as.Date(paste(2008, "-01-01", sep = "")), ymin = 52, ymax = 104, alpha = .6, fill = "#56B4E9") + 
+   annotate("text", x = as.Date(paste(1967, "-01-01", sep = "")), 
+                y = 80, label = "Observe Predictors", size= 3,
+                colour = "#56B4E9") +
+   annotate("segment", 
+           x = as.Date(paste(1985, "-01-01", sep = "")), xend = as.Date(paste(1990, "-01-01", sep = "")), y = 80, yend = 80,
+           arrow=arrow(length=unit(0.2, "cm")), color = "#56B4E9", size = .7) + 
+  labs(x = "Year",
+       y = "Age",
+       title = "Period perspective") + 
+    theme(axis.text.x = element_text(angle = 90)) + 
+   geom_vline(xintercept =  as.Date(paste(1992, "-01-01", sep = "")), color = "#56B4E9", linetype = "dashed", size = .7)
+
+
+
+combined_lexis_plot <- cowplot::plot_grid(lexis_cohort, lexis_period)
+
+ggsave(plot = combined_lexis_plot, filename = here("figures/lexis_diagram.png"), width = 10, height = 5)
+  
+```
+

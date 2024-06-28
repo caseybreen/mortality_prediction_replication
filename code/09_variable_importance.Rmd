@@ -1,0 +1,296 @@
+---
+title: "Variable importance"
+author: Casey Breen
+---
+
+## variable importance 
+
+```{r}
+## library packages
+library(here)
+library(data.table)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(origami)
+library(SuperLearner)
+library(sl3)
+library(doParallel)
+library(ggpubr)
+library(cowplot)
+library(caret)
+
+## source custom functions 
+source("helpers.R")
+```
+
+
+```{r}
+## Load and clean data
+data <- fread("~/workspace/data/v3/censoc_dmf_v3_linked.csv") %>%
+  janitor::clean_names() %>%
+  filter(byear %in% 1880:1920) 
+
+data <- data %>% 
+  filter(dyear >= 1975) %>%  
+  mutate(death_dummy = case_when(
+    dyear %in% 1975:1984 ~ 1,
+    TRUE ~ 0)) 
+
+```
+
+
+```{r}
+data <- recode_education(data, educ_var = "educd")
+
+recode_all_variables <- function(data) {
+  data %>%
+    # Recode Wage Income
+    mutate(incwage_recode = case_when(
+      incwage == 999998 ~ 0,
+      TRUE ~ incwage
+    )) %>%
+     # Recode Wage Income
+    mutate(educ_yrs = case_when(
+     is.na(educ_yrs) ~ 0,
+      TRUE ~ educ_yrs
+    )) %>%
+    # Recode Socioeconomic Index
+    mutate(sei_recode = case_when(
+      sei == 0 ~ 0,
+      TRUE ~ sei
+    )) %>%
+    # Recode Occupational Score
+    mutate(occscore_recode = case_when(
+      occscore == 0 ~ 0,
+      TRUE ~ occscore
+    )) %>%
+    # Recode Number of Persons in Household
+    mutate(numperhh_recode = pmin(numperhh, 20)) %>%
+    # Recode Prestige Score
+    mutate(presgl_recode = case_when(
+      presgl == 0 ~ 0,
+      TRUE ~ presgl
+    )) %>%
+    # Recode Race
+    mutate(
+      race_white_recode = as.integer(race == 1),
+      race_black_recode = as.integer(race == 2),
+      race_other_recode = as.integer(race %in% 3:10)
+    ) %>%
+    # Recode Metropolitan Status
+    mutate(
+      metro_nometro_recode = as.integer(metro == 1),
+      metro_city_recode = as.integer(metro == 2),
+      metro_suburb_recode = as.integer(metro == 3)
+    ) %>%
+    # Recode Marital Status
+    mutate(
+      marriage_married_recode = as.integer(marst %in% c(1, 2)),
+      marriage_divorced_recode = as.integer(marst %in% c(3, 4)),
+      marriage_widowed_recode = as.integer(marst == 5),
+      marriage_single_recode = as.integer(marst == 6)
+    ) %>%
+    # Recode Renter Status
+    mutate(renter_recode = as.integer(rent > 0)) %>%
+    # Recode Hispanic Status
+    mutate(hispan_recode = as.integer(hispan > 0)) %>%
+    # Recode Class Worker
+    mutate(
+      classwkr_self_employed_recode = as.integer(classwkr == 1),
+      classwkr_wage_worker_recode = as.integer(classwkr == 2)
+    ) %>%
+    # Recode Number of Families
+    mutate(nfams = pmin(nfams, 10)) %>%
+    # Lives with Mother Recode
+    mutate(momloc_self_employed_recode = as.integer(momloc > 0)) %>%
+    # Migration Recode
+    mutate(
+      migrate5_same_house_recode = as.integer(migrate5 == 1),
+      migrate5_state_move_recode = as.integer(migrate5 == 2),
+      migrate5_country_move_recode = as.integer(migrate5 == 3),
+      migrate5_international_move_recode = as.integer(migrate5 == 4)
+    ) %>%
+    # Urban Recode
+    mutate(urban_recode = as.integer(urban == 2)) %>%
+    # Labor Force Recode
+    mutate(labforce_recode = as.integer(labforce == 2)) %>%
+    # Farm Recode
+    mutate(farm_recode = as.integer(farm == 2)) %>%
+    # Homeowner Recode
+    mutate(homeowner_recode = as.integer(ownershpd == 10)) %>%
+    # Multiple Generations Recode
+    mutate(
+      multgend_1gen_recode = as.integer(multgend == 10),
+      multgend_2gen_recode = as.integer(multgend %in% 20:23),
+      multgend_3gen_recode = as.integer(multgend %in% 30:32)
+    ) %>%
+    # Employment Status Recode
+    mutate(empstatd_employed_recode = as.integer(empstatd %in% 10:13))
+}
+```
+ 
+
+```{r}
+# Example usage
+data <- recode_all_variables(data) %>% 
+  # drop_na() %>% 
+  sample_n(100000)
+```
+
+
+
+```{r}
+data <- data %>% 
+  select(histid, nsibs, rent, renter_recode, hispan_recode, classwkr, nfams, nmothers, nfathers, ncouples, wkswork1, hrswork1, death_age, educ_yrs, incwage_recode, sei_recode, occscore_recode, numperhh_recode, presgl_recode, race_white_recode, race_black_recode, race_other_recode, metro_nometro_recode, metro_city_recode, metro_suburb_recode, marriage_married_recode, marriage_divorced_recode, marriage_widowed_recode, marriage_single_recode, classwkr_self_employed_recode, classwkr_wage_worker_recode, momloc_self_employed_recode, migrate5_same_house_recode, migrate5_state_move_recode, migrate5_country_move_recode, migrate5_international_move_recode, urban_recode, labforce_recode, farm_recode, homeowner_recode, multgend_1gen_recode, multgend_2gen_recode, multgend_3gen_recode, empstatd_employed_recode, byear,  statefip, countyicp, death_dummy) 
+
+## normalize numeric variable 
+data <- data %>%
+   mutate(across(!death_age & !histid & !statefip & !countyicp & !educ_yrs
+                 & !statefip & !countyicp & !educ_yrs & !sei_recode & !occscore_recode & !presgl_recode & !incwage_recode,
+                 normalize))
+```
+
+```{r}
+colSums(is.na(data))
+```
+
+
+
+## split up sample 
+
+```{r}
+## Split data into training and holdout sets
+set.seed(123)  # Set seed for reproducibility in sample splitting
+
+train_indices <- sample(seq_len(nrow(data)), size = .75 * nrow(data))
+
+
+train_data <- data[train_indices, ]
+holdout_data <- data[-train_indices, ]
+
+data
+```
+
+
+
+```{r}
+perform_validation <- function(train_data, test_data, dependent_var, features) {
+  
+  results_df <- data.frame(feature = character(), r_squared = numeric(), stringsAsFactors = FALSE)
+
+  for (feat in features) {
+    # Construct the formula
+    formula_str <- as.formula(paste(dependent_var, "~", feat, " + as.factor(byear)"))
+    
+    # Fit the model on training data
+    model <- glm(formula = formula_str, data = train_data, family = "binomial")
+    
+    # Predict on testing data
+    predictions <- predict(model, newdata = test_data, type = "response") 
+    predictions <- ifelse(predictions > 0.5, 1, 0)
+    
+    # Calculate accuracy
+    
+    correct_predictions <- sum(predictions == test_data[[dependent_var]])
+    total_predictions <- nrow(test_data)
+    accuracy <- correct_predictions / total_predictions
+    
+    # Store the accuracy value for this feature
+    results_df <- rbind(results_df, data.frame(feature = feat, accuracy = accuracy))
+  }
+
+  # Arrange the results by r_squared in descending order
+  results_df <- results_df %>% arrange(desc(r_squared))
+  
+  return(results_df)
+}
+
+```
+
+
+
+```{r}
+# 
+# # ggsave(plot = variable_importance, filename = here("figures/reserve/variable_importance_dmf.png"), height = 8, width = 7)
+# var_importance_df <- perform_validation(train_data, holdout_data, "death_dummy", holdout_data %>% select(-death_age, -histid, -death_dummy) %>% colnames()) %>%
+#   arrange(desc(r_squared)) %>% 
+#   mutate(feature = case_when(
+#       feature == "educ_yrs" ~ "Education in Years",
+#       feature == "presgl_recode" ~ "Occupational Prestige Score",
+#       feature == "sei_recode" ~ "Socioeconomic Index Score",
+#       feature == "wkswork1" ~ "Weeks Worked Last Year",
+#       feature == "hrswork1" ~ "Hours Worked Last Week",
+#       feature == "classwkr_self_employed_recode" ~ "Self-Employed Worker",
+#       feature == "classwkr_wage_worker_recode" ~ "Wage Worker",
+#       feature == "empstatd_employed_recode" ~ "Employment Status: Employeed",
+#       feature == "occscore_recode" ~ "Occupational Score",
+#       feature == "classwkr" ~ "Class of Worker",
+#       feature == "renter_recode" ~ "Renter Status",
+#       feature == "homeowner_recode" ~ "Home Ownership Status",
+#       feature == "multgend_1gen_recode" ~ "Single Generation Household",
+#       feature == "race_black_recode" ~ "Race: Black",
+#       feature == "race_white_recode" ~ "Race: White",
+#       feature == "nmothers" ~ "Number of Mothers",
+#       feature == "incwage_recode" ~ "Wage and Salary Income",
+#       feature == "farm_recode" ~ "Farm Residence",
+#       feature == "nfathers" ~ "Number of Fathers",
+#       feature == "migrate5_state_move_recode" ~ "State Migration",
+#       feature == "migrate5_international_move_recode" ~ "International Migration",
+#       feature == "multgend_2gen_recode" ~ "Two Generation Household",
+#       feature == "numperhh_recode" ~ "Household Size",
+#       feature == "hispan_recode" ~ "Hispanic Ethnicity",
+#       feature == "multgend_3gen_recode" ~ "Three Generation Household",
+#       feature == "marriage_divorced_recode" ~ "Divorced",
+#       feature == "labforce_recode" ~ "Labor Force Participation",
+#       feature == "metro_city_recode" ~ "Metro City",
+#       feature == "marriage_widowed_recode" ~ "Widowed",
+#       feature == "metro_suburb_recode" ~ "Metro Suburb",
+#       feature == "nsibs" ~ "Number of Siblings",
+#       feature == "marriage_single_recode" ~ "Single",
+#       feature == "race_other_recode" ~ "Other Race",
+#       feature == "rent" ~ "Rent",
+#       feature == "countyicp" ~ "County Code",
+#       feature == "metro_nonmetro_recode" ~ "Non-Metro Area",
+#       feature == "marriage_married_recode" ~ "Married",
+#       feature == "migrate5_country_move_recode" ~ "Country Migration",
+#       feature == "ncouples" ~ "Number of Couples",
+#       feature == "urban_recode" ~ "Urban-Rural Status",
+#       feature == "nfams" ~ "Number of Families",
+#       feature == "migrate5_same_house_recode" ~ "Same House as Last Year",
+#       feature == "statefip" ~ "State FIP Code",
+#       feature == "momloc_self_employed_recode" ~ "Self-Employed in Household",
+#       TRUE ~ as.character(feature)  # Keep original name if no match
+#     )) %>%
+#   top_n(15) 
+#   
+#   
+# variable_importance <- var_importance_df %>% 
+#   top_n(15) %>% 
+#   ggplot(aes(y = reorder(feature, accuracy), x = accuracy)) + 
+#   # geom_line(x = Predictor, y = `Relative Importance`) + 
+#   geom_point() + 
+#   theme_cowplot() +
+#   geom_segment(aes(
+#     y = feature,
+#     yend = feature,
+#     x = 0.542,
+#     xend = accuracy
+#   ),
+#   size = 0.5
+#   )  + # Draw dashed lines +
+#   geom_segment(aes(
+#     y = feature,
+#     yend = feature,
+#     x = .542,
+#     xend = max(accuracy)
+#   ),
+#   linetype = "dashed",
+#   size = 0.1
+#   ) +  # Draw dashed lines
+#   labs(x = "Accuracy",
+#        y = "",
+#        title = "Variable Importance") + 
+#   xlim(0.542, 0.75) 
+```
+

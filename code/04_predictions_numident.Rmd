@@ -1,0 +1,319 @@
+---
+title: "Sl3 Predictions -- Numident" 
+author: Casey Breen
+---
+
+Summary: 
+
+— On our training dataset, train machine learning algorithms to predict age of death using CenSoc-Numident mortality records.
+— On our test dataset, assess the performance of the machine learning algorithms on our hold-out datasets. 
+
+```{r}
+## library packages
+library(here)
+library(data.table)
+library(knitr)
+library(kableExtra)
+library(tidyverse)
+library(origami)
+library(SuperLearner)
+library(sl3)
+library(doParallel)
+library(ggpubr)
+library(cowplot)
+
+## parallel processing 
+## Run this if parallel gets stuck and won't turn off
+registerDoSEQ()
+unregister <- function() {
+  env <- foreach:::.foreachGlobals
+  rm(list=ls(name=env), pos=env)
+}
+
+## register clusters 
+cl <- makePSOCKcluster(4)
+registerDoParallel(cl)
+
+## read in training and test datasets 
+numident_train <- read_rds(file = here("data/censoc_numident_train_data_new.rds")) %>% 
+  drop_na()
+
+numident_holdout <- read_rds(file = here("data/censoc_numident_test_data_new.rds")) %>%
+  drop_na()
+```
+
+
+```{r}
+## meta learner 
+sl <- Lrnr_sl$new(learners = stack, metalearner = Lrnr_nnls$new())
+
+## stack 
+stack <- make_learner_stack(
+  "Lrnr_randomForest",
+  "Lrnr_gbm",
+  "Lrnr_glm",
+  "Lrnr_xgboost",
+  "Lrnr_glmnet",
+  "Lrnr_svm",
+  "Lrnr_mean",
+  "Lrnr_ranger",
+  "Lrnr_earth"
+)
+
+# specify the outcome and covariates
+outcome <- "death_age"
+covars <- colnames(numident_train %>% select(-death_age, -histid))
+
+# create the sl3 task
+superlearner_task <- make_sl3_Task(
+  data = numident_train,
+  covariates = covars,
+  outcome = outcome,
+  outcome_type = "continuous")
+
+## make learner 
+sl <- make_learner(Lrnr_sl, 
+                   learners = stack,
+                   metalearner = Lrnr_nnls$new())
+
+```
+
+
+```{r}
+## Set the verbosity of sl3 to TRUE
+options(sl3.verbose = TRUE)
+
+# Record the start time
+start_time <- proc.time()
+
+# Train a superlearner model
+sl_fit <- sl$train(task = superlearner_task)
+
+# Calculate the runtime of the code
+runtime_sl_fit <- proc.time() - start_time
+
+# Print the runtime
+print(runtime_sl_fit)
+
+# Print coefficients of the trained model to 3 decimal places
+print(round(sl_fit$coefficients, 3))
+
+```
+
+
+```{r}
+## make prediction task  
+prediction_task <- make_sl3_Task(
+  data = numident_holdout,
+  covariates = covars,
+  outcome = outcome,
+  outcome_type = "continuous")
+
+## make superlearner predictions 
+sl_preds_new_task <- sl_fit$predict(task = prediction_task)
+```
+
+## Make predictions 
+
+```{r}
+## make predictions
+df <- data.frame(
+  lm = sl_fit$learner_fits$Lrnr_glm_TRUE$predict(task = prediction_task),
+  xgboost = sl_fit$learner_fits$Lrnr_xgboost_20_1$predict(task = prediction_task),
+  randomForest = sl_fit$learner_fits$Lrnr_randomForest_500_TRUE_5$predict(task = prediction_task),
+  gbm = sl_fit$learner_fits$Lrnr_gbm_10000_2_0.001$predict(task = prediction_task),
+  ridge = sl_fit$learner_fits$Lrnr_glmnet_NULL_deviance_10_1_100_TRUE_FALSE$predict(task = prediction_task),
+  lasso = sl_fit$learner_fits$Lrnr_earth_2_3_backward_0_1_0_0$predict(task = prediction_task),
+  svm = sl_fit$learner_fits$Lrnr_svm_TRUE_NULL_radial_TRUE_FALSE$predict(task = prediction_task),
+  SuperLearner = sl_fit$predict(task = prediction_task),
+  observed_death_age = numident_holdout$death_age)
+```
+
+
+```{r}
+## plot predictions 
+df_long <- df %>% 
+  pivot_longer(!observed_death_age, names_to = "model", values_to = "estimate")
+
+prediction_plots <- df_long %>% 
+  ggplot(aes(x=observed_death_age, y=estimate)) + 
+  geom_jitter(alpha = 0.14, size = 0.5) + 
+  geom_smooth() +
+  stat_cor(aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~"))) + 
+  labs(title = "Predicted vs. Observed Age of Death", 
+       x = "Actual Age of Death", 
+       y = "Predicted Age of Death") + 
+  theme_cowplot() + 
+  facet_wrap(~model)
+
+
+## make predictions plot (superlearer only)
+prediction_plots_superlearner <- df_long %>% 
+  filter(model %in% "SuperLearner") %>% 
+  ggplot(aes(x=observed_death_age, y=estimate)) + 
+  #geom_point(alpha = 0.01) +
+  geom_jitter(alpha = 0.14, size = 0.5) + 
+  geom_smooth() +
+  stat_cor(
+   aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~"))) + 
+  labs(title = "Superlearner: Predicted vs. Observed Age of Death", 
+       x = "Actual Age of Death", 
+       y = "Predicted Age of Death") + 
+  theme_cowplot()
+
+ggsave(plot = prediction_plots, filename = here("figures/reserve/prediction_plots_numident.png"), height = 8, width = 8)
+
+```
+
+
+```{r}
+perform_validation <- function(train_data, test_data, dependent_var, features) {
+  results_df <- data.frame(feature = character(), r_squared = numeric(), stringsAsFactors = FALSE)
+
+  for (feat in features) {
+    # Construct the formula
+    formula_str <- as.formula(paste(dependent_var, "~", feat))
+    
+    # Fit the model on training data
+    model <- lm(formula = formula_str, data = train_data)
+    
+    # Predict on testing data
+    predictions <- predict(model, newdata = test_data, )
+    
+    # Calculate R^2
+    ss_tot <- sum((test_data[[dependent_var]] - mean(test_data[[dependent_var]]))^2)
+    ss_res <- sum((test_data[[dependent_var]] - predictions)^2)
+    r_squared <- 1 - (ss_res / ss_tot)
+    
+    # Store the R^2 value for this feature
+    results_df <- rbind(results_df, data.frame(feature = feat, r_squared = r_squared))
+  }
+
+  # Arrange the results by r_squared in descending order
+  results_df <- results_df %>% arrange(desc(r_squared))
+  
+  return(results_df)
+}
+
+```
+
+```{r}
+
+var_importance_df <- perform_validation(numident_train, numident_holdout, "death_age", numident_train %>% select(-death_age, -histid) %>% colnames()) %>% 
+  arrange(desc(r_squared)) %>% 
+  mutate(feature = case_when(
+      feature == "educ_yrs" ~ "Education in Years",
+      feature == "presgl_recode" ~ "Occupational Prestige Score",
+      feature == "sei_recode" ~ "Socioeconomic Index Score",
+      feature == "wkswork1" ~ "Weeks Worked Last Year",
+      feature == "hrswork1" ~ "Hours Worked Last Week",
+      feature == "classwkr_self_employed_recode" ~ "Self-Employed Worker",
+      feature == "classwkr_wage_worker_recode" ~ "Wage Worker",
+      feature == "empstatd_employed_recode" ~ "Employment Status: Employeed",
+      feature == "occscore_recode" ~ "Occupational Score",
+      feature == "classwkr" ~ "Class of Worker",
+      feature == "renter_recode" ~ "Renter Status",
+      feature == "homeowner_recode" ~ "Home Ownership Status",
+      feature == "multgend_1gen_recode" ~ "Single Generation Household",
+      feature == "race_black_recode" ~ "Race: Black",
+      feature == "race_white_recode" ~ "Race: White",
+      feature == "nmothers" ~ "Number of Mothers",
+      feature == "incwage_recode" ~ "Wage and Salary Income",
+      feature == "farm_recode" ~ "Farm Residence",
+      feature == "nfathers" ~ "Number of Fathers",
+      feature == "migrate5_state_move_recode" ~ "State Migration",
+      feature == "migrate5_international_move_recode" ~ "International Migration",
+      feature == "multgend_2gen_recode" ~ "Two Generation Household",
+      feature == "numperhh_recode" ~ "Household Size",
+      feature == "hispan_recode" ~ "Hispanic Ethnicity",
+      feature == "multgend_3gen_recode" ~ "Three Generation Household",
+      feature == "marriage_divorced_recode" ~ "Divorced",
+      feature == "labforce_recode" ~ "Labor Force Participation",
+      feature == "metro_city_recode" ~ "Metro City",
+      feature == "marriage_widowed_recode" ~ "Widowed",
+      feature == "metro_suburb_recode" ~ "Metro Suburb",
+      feature == "metro_nometro_recode" ~ "Metro Suburb",
+      feature == "nsibs" ~ "Number of Siblings",
+      feature == "marriage_single_recode" ~ "Single",
+      feature == "race_other_recode" ~ "Other Race",
+      feature == "rent" ~ "Rent",
+      feature == "countyicp" ~ "County Code",
+      feature == "metro_nonmetro_recode" ~ "Non-Metro Area",
+      feature == "marriage_married_recode" ~ "Married",
+      feature == "migrate5_country_move_recode" ~ "Country Migration",
+      feature == "ncouples" ~ "Number of Couples",
+      feature == "urban_recode" ~ "Urban-Rural Status",
+      feature == "nfams" ~ "Number of Families",
+      feature == "migrate5_same_house_recode" ~ "Same House as Last Year",
+      feature == "statefip" ~ "State FIP Code",
+      feature == "momloc_self_employed_recode" ~ "Self-Employed in Household",
+      feature == "sex_male" ~ "Gender",
+      TRUE ~ as.character(feature)  # Keep original name if no match
+    )) %>%
+  top_n(15) 
+  
+  
+variable_importance <-  var_importance_df %>% 
+  ggplot(aes(y = reorder(feature, r_squared), x = r_squared)) + 
+  # geom_line(x = Predictor, y = `Relative Importance`) + 
+  geom_point() + 
+  theme_cowplot() +
+  geom_segment(aes(
+    y = feature,
+    yend = feature,
+    x = 0,
+    xend = r_squared
+  ),
+  size = 0.5
+  )  + # Draw dashed lines +
+  geom_segment(aes(
+    y = feature,
+    yend = feature,
+    x = 0,
+    xend = max(r_squared)
+  ),
+  linetype = "dashed",
+  size = 0.1
+  ) +  # Draw dashed lines
+  labs(x = "R-Squared",
+       y = "",
+       title = "Variable Importance")
+```
+
+
+```{r}
+## visualize variance explained 
+variance_explained_plot <- as.data.frame(cor(df)) %>% 
+  rownames_to_column(var = "algorithm") %>% 
+  mutate(r2 = observed_death_age^2) %>% 
+  select(algorithm, r2) %>% 
+  filter(algorithm != "observed_death_age")  %>% 
+  ggplot(aes(x = reorder(algorithm, -r2),
+             y = r2,
+             label = round(r2, 4))) + 
+  geom_col(color = "black", fill  = "grey") + 
+  geom_text(position = position_dodge(width = .9),    # move to center of bars
+              vjust = -0.5,    # nudge above top of bar
+              size = 4) + 
+  scale_y_continuous(limits = c(0, 0.015)) + 
+  theme_cowplot() + 
+  labs(x = "Algorithm",
+       y = expression (R^2),
+       title = bquote(bold("Algorithm Performance " (R^2))))
+
+ggsave(plot = variance_explained_plot, filename = here("figures/reserve/variance_explained_plot_numident.png"), height = 5, width = 8)
+```
+
+
+
+```{r}
+## create aggregate plots 
+left_side <-  cowplot::plot_grid(variance_explained_plot, prediction_plots_superlearner, labels = "AUTO", nrow = 2)
+
+combined_plot <- cowplot::plot_grid(left_side, variable_importance, labels = c("", "C"), rel_widths = c(1.2, 1) )
+
+## save aggregate plots 
+ggsave(plot = combined_plot, filename = here("figures/05_combined_plot_numident.png"), width = 14, height = 7)
+
+```
+
