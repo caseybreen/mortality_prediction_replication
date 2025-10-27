@@ -20,7 +20,7 @@ rmd_files <- rmd_files[!rmd_files %in% "00_run_all.Rmd"]
 
 ## set seed for reproducibility 
 set.seed(1)
-for (cur_file in rmd_files[5:6]) {
+for (cur_file in rmd_files) {
 	cat("================================\n")
 	tictoc::tic(glue::glue("Finished with {cur_file}, time:"))
 	cat("Running ", cur_file, "\n")

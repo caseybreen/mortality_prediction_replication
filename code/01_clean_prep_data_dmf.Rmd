@@ -29,7 +29,7 @@ source("helpers.R")
 `%notin%` <- Negate(`%in%`)
 
 ### Import
-dmf_linked <- fread("~/workspace/data/v3/censoc_dmf_v3_linked.csv") %>%
+dmf_linked <- fread(here("data", "censoc_dmf_v3_linked.csv")) %>%
   janitor::clean_names()
 
 ## select one cohort
@@ -211,11 +211,9 @@ set.seed(2232)
 
 ## split data
 split <- initial_split(dmf_linked_1910_recode, prop = 0.75) # set to .6
-censoc_dmf_train_data <- training(split)
-censoc_dmf_test_data <- testing(split)
+censoc_dmf_train_data <- rsample::training(split)
+censoc_dmf_test_data <- rsample::testing(split)
 ```
-
-
 
 
 ```{r}

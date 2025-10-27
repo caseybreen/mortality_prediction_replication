@@ -1,0 +1,98 @@
+---
+title: "Sl3 Predictions -- DMF" 
+author: Casey Breen
+---
+
+Summary: 
+
+— On our training dataset, train machine learning algorithms to predict age of death using CenSoc-DMF mortality records.
+— On our test dataset, assess the performance of the machine learning algorithms on our hold-out datasets. 
+
+```{r}
+## source custom functions 
+library(here)
+source("helpers.R")
+
+## parallel processing 
+## Run this if parallel gets stuck and won't turn off
+registerDoSEQ()
+unregister <- function() {
+  env <- foreach:::.foreachGlobals
+  rm(list=ls(name=env), pos=env)
+}
+
+## register clusters 
+cl <- makePSOCKcluster(8)
+registerDoParallel(cl)
+
+## read in training and test datasets 
+dmf_train <- read_rds(file = here("/Users/cb48679/workspace/mortality_prediction_replication/data/censoc_dmf_train_data_new.rds")) %>% 
+  drop_na() 
+
+dmf_holdout <- read_rds(file = here("/Users/cb48679/workspace/mortality_prediction_replication/data/censoc_dmf_train_data_new.rds")) %>%
+  drop_na() 
+
+# Calculate the number of NA values in each column of the dataframe
+na_counts <- dmf_train %>%
+  summarise(across(everything(), ~sum(is.na(.))))
+
+# Print the result
+print(na_counts)
+
+```
+
+
+```{r}
+## read in training and test datasets 
+dmf_linked <- read_csv("/Users/cb48679/workspace/mortality_prediction_replication/data/censoc_dmf_v3_linked.csv") %>% 
+  janitor::clean_names()
+
+`%notin%` <- Negate(`%in%`)
+
+
+recode_all <- function(df) {
+  df %>%
+    recode_education(educ_var = "educd") %>%
+    mutate(
+      incwage_recode  = case_when(incwage  == 999998 ~ NA_real_, TRUE ~ incwage),
+      presgl_recode   = case_when(presgl   == 0      ~ NA_real_, TRUE ~ occscore)
+    ) %>%
+    drop_na(death_age, educ_yrs, incwage_recode, presgl_recode)
+}
+
+results <- map_dbl(1900:1920, function(yr) {
+  message("Running model for ", yr)
+  
+  d <- dmf_linked %>%
+    filter(byear == yr) %>%
+        recode_all() %>% 
+    select(byear, death_age, educ, educ_yrs, incwage_recode, presgl_recode) 
+  
+  if (nrow(d) < 100) return(NA_real_)  # skip sparse years
+  
+  set.seed(2)
+  split <- rsample::initial_split(d, prop = 0.75)
+  dmf_train <- rsample::training(split)
+  dmf_holdout <- rsample::testing(split)
+  
+  simple_3predictor_model <- lm(death_age ~ as.factor(educ_yrs) + incwage_recode + as.factor(presgl_recode),
+                                data = dmf_train)
+  predictions <- predict(simple_3predictor_model, newdata = dmf_holdout)
+  
+  actual <- dmf_holdout$death_age
+  sst <- sum((actual - mean(actual))^2)
+  ssr <- sum((actual - predictions)^2)
+  r_squared <- 1 - (ssr / sst)
+  
+  print(paste("R² for", yr, "=", round(r_squared, 3)))
+  r_squared
+})
+
+tibble(year = 1900:1920, r2 = results) %>% 
+  ggplot(aes(x = year, y = r2+ 0.002)) +
+  geom_line() +
+  geom_point() + 
+  ylim(0, .013) + 
+  theme_cowplot() + 
+labs(x = "Year", y = "R²")
+```

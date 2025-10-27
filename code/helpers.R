@@ -1,3 +1,31 @@
+# Install and load pacman if not already installed
+if (!require("pacman")) install.packages("pacman")
+
+# Use pacman to load all necessary packages
+pacman::p_load(
+  data.table,
+  tidyverse,
+  ggrepel,
+  cowplot,
+  broom,
+  fixest,
+  gt,
+  rsample,
+  LexisPlotR,
+  RColorBrewer,
+  ipumsr,
+  knitr,
+  origami,
+  SuperLearner,
+  sl3, ## remotes::install_github("tlverse/sl3")
+  doParallel,
+  ranger,
+  gbm,
+  xgboost,
+  glmnet,
+  earth,
+  ggpubr)
+
 ## Source .Rmd files 
 
 source_rmd = function(file, ...) {
@@ -59,26 +87,27 @@ normalize <- function(x) {
 ## define %notin% command 
 `%notin%` <- Negate(`%in%`)
 
+## R2 function 
+calc_r2 <- function(actual, predicted) {
+  ss_total <- sum((actual - mean(actual, na.rm = TRUE))^2, na.rm = TRUE)
+  ss_res   <- sum((actual - predicted)^2, na.rm = TRUE)
+  
+  1 - (ss_res / ss_total)
+}
 
+## MAE function
+calc_mae <- function(actual, predicted) {
+  mean(abs(actual - predicted), na.rm = TRUE)
+}
+
+## RMSE function
+calc_rmse <- function(actual, predicted) {
+  sqrt(mean((actual - predicted)^2, na.rm = TRUE))
+}
 
 ## custom color schemes
 cudb <- c("#49b7fc", "#ff7b00", "#17d898", "#ff0083", "#0015ff", "#e5d200", "#999999")
 cud <- c("#D55E00", "#56B4E9", "#009E73", "#CC79A7", "#0072B2", "#E69F00", "#F0E442", "#999999")
-
-## library packages 
-library(data.table)
-library(tidyverse)
-library(here)
-library(ggrepel)
-library(cowplot)
-library(socviz)
-library(broom)
-library(fixest)
-library(gt)
-library(LexisPlotR)
-library(RColorBrewer)
-library(ipumsr)
-library(gompertztrunc)
 
 
 ## custom functions 
