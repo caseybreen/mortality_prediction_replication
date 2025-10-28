@@ -26,47 +26,162 @@ cl <- makePSOCKcluster(8)
 registerDoParallel(cl)
 
 ## read in training and test datasets 
-dmf_train <- read_rds(file = here("/Users/cb48679/workspace/mortality_prediction_replication/data/censoc_dmf_train_data_new.rds")) %>% 
-  drop_na() 
-
-dmf_holdout <- read_rds(file = here("/Users/cb48679/workspace/mortality_prediction_replication/data/censoc_dmf_train_data_new.rds")) %>%
-  drop_na() 
-
-# Calculate the number of NA values in each column of the dataframe
-na_counts <- dmf_train %>%
-  summarise(across(everything(), ~sum(is.na(.))))
-
-# Print the result
-print(na_counts)
+dmf_linked <- fread(here("data", "censoc_dmf_v3_linked.csv")) %>%
+  janitor::clean_names()
 
 ```
 
 
 ```{r}
-## read in training and test datasets 
-dmf_linked <- read_csv("/Users/cb48679/workspace/mortality_prediction_replication/data/censoc_dmf_v3_linked.csv") %>% 
-  janitor::clean_names()
+## recode education  
+dmf_linked <- recode_education(dmf_linked, educ_var = "educd")
 
-`%notin%` <- Negate(`%in%`)
+## recode incwage 
+dmf_linked <- dmf_linked %>% 
+ mutate(incwage_recode = case_when(
+   incwage == 999998 ~ NA_real_,
+   TRUE ~ incwage
+ ))
+
+## recode sei  
+dmf_linked <- dmf_linked %>% 
+ mutate(sei_recode = case_when(
+   sei == 0 ~ NA_real_,
+   TRUE ~ sei
+ ))
+
+## recode occscore   
+dmf_linked <- dmf_linked %>% 
+ mutate(occscore_recode = case_when(
+   occscore == 0 ~ NA_real_,
+   TRUE ~ occscore
+ ))
+
+## recode numperhh
+dmf_linked <- dmf_linked %>% 
+ mutate(numperhh_recode = case_when(
+   numperhh > 20 ~ 20,
+   TRUE ~ numperhh
+ ))
 
 
-recode_all <- function(df) {
-  df %>%
-    recode_education(educ_var = "educd") %>%
-    mutate(
-      incwage_recode  = case_when(incwage  == 999998 ~ NA_real_, TRUE ~ incwage),
-      presgl_recode   = case_when(presgl   == 0      ~ NA_real_, TRUE ~ occscore)
-    ) %>%
-    drop_na(death_age, educ_yrs, incwage_recode, presgl_recode)
-}
+## recode numperhh
+dmf_linked <- dmf_linked %>% 
+ mutate(numperhh_recode = case_when(
+   numperhh > 20 ~ 20,
+   TRUE ~ numperhh
+ ))
 
+## recode presgl 
+dmf_linked <- dmf_linked %>% 
+  mutate(presgl_recode = case_when(
+    presgl == 0 ~ NA_real_,
+    TRUE ~ presgl
+  ))
+
+## recode race 
+dmf_linked <- dmf_linked %>% 
+  mutate(race_white_recode = ifelse(race == 1, 1, 0),
+         race_black_recode = ifelse(race == 2, 1, 0),
+         race_other_recode = ifelse(race %in% 3:10, 1, 0))
+
+## recode metro 
+dmf_linked <- dmf_linked %>% 
+  mutate(metro_nometro_recode = ifelse(metro == 1, 1, 0),
+         metro_city_recode = ifelse(metro == 2, 1, 0),
+         metro_suburb_recode = ifelse(metro == 3, 1, 0))
+
+## recode marriage 
+dmf_linked <- dmf_linked %>%  
+  mutate(marriage_married_recode = ifelse(marst %in% c(1:2), 1, 0),
+         marriage_divorced_recode = ifelse(marst %in% c(3:4), 1, 0),
+         marriage_widowed_recode = ifelse(marst == 5, 1, 0),
+         marriage_single_recode = ifelse(marst == 6, 1, 0))
+
+## recode renter 
+dmf_linked <- dmf_linked %>% 
+  mutate(renter_recode = case_when(rent > 0 ~ 1,
+                                  TRUE ~ 0))
+
+## recode hispan 
+dmf_linked <- dmf_linked %>% 
+  mutate(hispan_recode = case_when(hispan > 0 ~ 1,
+                                  TRUE ~ 0))
+
+## class worker 
+dmf_linked <- dmf_linked %>%  
+  mutate(classwkr_self_employed_recode = ifelse(classwkr %in% c(1), 1, 0),
+         classwkr_wage_worker_recode = ifelse(classwkr %in% c(2), 1, 0))
+
+
+## nfams recode 
+dmf_linked <- dmf_linked %>%  
+  mutate(nfams = case_when(nfams > 10 ~ 10,
+                                     TRUE ~ nfams))
+
+
+## lives with mother 
+dmf_linked <- dmf_linked %>%  
+  mutate(momloc_recode = ifelse(momloc > 0, 1, 0))
+  
+## migration recode 
+dmf_linked <- dmf_linked %>%  
+  mutate(migrate5_same_house_recode = ifelse(migrate5 == 1, 1, 0),
+         migrate5_state_move_recode = ifelse(migrate5 == 2, 1, 0),
+         migrate5_country_move_recode = ifelse(migrate5 == 3, 1, 0),
+         migrate5_international_move_recode = ifelse(migrate5 == 4, 1, 0))
+
+## urban recode 
+dmf_linked <- dmf_linked %>%  
+  mutate(urban_recode = case_when(urban == 2 ~ 1,
+                                  TRUE ~ 0))
+
+## laborforce recode 
+dmf_linked <- dmf_linked %>%  
+  mutate(labforce_recode = case_when(labforce == 2 ~ 1,
+                                  TRUE ~ 0))
+
+## farm recode 
+dmf_linked <- dmf_linked %>%  
+  mutate(farm_recode = case_when(farm == 2 ~ 1,
+                                  TRUE ~ 0))
+
+## homeowner recode 
+dmf_linked <- dmf_linked %>%  
+  mutate(homeowner_recode = case_when(ownershpd == 10 ~ 1,
+                                  TRUE ~ 0))
+
+## migration recode 
+dmf_linked <- dmf_linked %>%  
+  mutate(multgend_1gen_recode = ifelse(multgend %in% c(10), 1, 0),
+         multgend_2gen_recode = ifelse(multgend %in% c(20:23), 1, 0),
+         multgend_3gen_recode = ifelse(multgend %in% c(30:32), 1, 0))
+
+## empstatd recode 
+dmf_linked <- dmf_linked %>%  
+  mutate(empstatd_employed_recode = ifelse(empstatd %in% c(10:13), 1, 0))
+```
+
+
+## select predictors 
+
+```{r}
+dmf_linked_recode <- dmf_linked %>% 
+  select(histid, nsibs, rent, renter_recode, hispan_recode, classwkr, nfams, nmothers, nfathers, ncouples, wkswork1, hrswork1, death_age, educ_yrs, incwage_recode, sei_recode, occscore_recode, numperhh_recode, presgl_recode, race_white_recode, race_black_recode, race_other_recode, metro_nometro_recode, metro_city_recode, metro_suburb_recode, marriage_married_recode, marriage_divorced_recode, marriage_widowed_recode, marriage_single_recode, classwkr_self_employed_recode, classwkr_wage_worker_recode, momloc_recode, migrate5_same_house_recode, migrate5_state_move_recode, migrate5_country_move_recode, migrate5_international_move_recode, urban_recode, labforce_recode, farm_recode, homeowner_recode, multgend_1gen_recode, multgend_2gen_recode, multgend_3gen_recode, empstatd_employed_recode, statefip, byear) 
+```
+
+
+```{r}
+dmf_linked_recode <- dmf_linked_recode %>% drop_na()
+```
+
+
+```{r}
 results <- map_dbl(1900:1920, function(yr) {
   message("Running model for ", yr)
   
-  d <- dmf_linked %>%
-    filter(byear == yr) %>%
-        recode_all() %>% 
-    select(byear, death_age, educ, educ_yrs, incwage_recode, presgl_recode) 
+  d <- dmf_linked_recode %>%
+    filter(byear == yr)
   
   if (nrow(d) < 100) return(NA_real_)  # skip sparse years
   
@@ -75,9 +190,29 @@ results <- map_dbl(1900:1920, function(yr) {
   dmf_train <- rsample::training(split)
   dmf_holdout <- rsample::testing(split)
   
-  simple_3predictor_model <- lm(death_age ~ as.factor(educ_yrs) + incwage_recode + as.factor(presgl_recode),
-                                data = dmf_train)
-  predictions <- predict(simple_3predictor_model, newdata = dmf_holdout)
+  # specify the outcome and covariates
+  outcome <- "death_age"
+  covars <- colnames(dmf_train %>% 
+                       select(-death_age, -histid, -byear))
+
+task_train <- make_sl3_Task(
+  data = dmf_train,
+  covariates = covars,
+  outcome = "death_age"
+)
+task_holdout <- make_sl3_Task(
+  data = dmf_holdout,
+  covariates = covars,
+  outcome = "death_age"
+)
+
+# GBM learner (tweak hyperparameters as you like)
+gbm_learner <- Lrnr_gbm$new(distribution = "gaussian")
+
+# train and predict
+fit_gbm <- gbm_learner$train(task_train)
+predictions <- fit_gbm$predict(task_holdout)
+
   
   actual <- dmf_holdout$death_age
   sst <- sum((actual - mean(actual))^2)
@@ -92,7 +227,7 @@ cohort_fig_df <- tibble(year = 1900:1920, r2 = results) %>%
   ggplot(aes(x = year, y = r2+ 0.002)) +
   geom_line() +
   geom_point(shape = 21, size = 3, fill = "white") +  # solid circular points
-  ylim(0, .013) + 
+  ylim(0, .017) + 
   theme_cowplot() + 
 labs(x = "Year", y = "R²")
 

@@ -24,7 +24,7 @@ unregister <- function() {
 ## register clusters 
 cl <- makePSOCKcluster(8)
 registerDoParallel(cl)
-
+ 
 ## read in training and test datasets 
 dmf_train <- read_rds(file = here("data/censoc_dmf_train_data_new.rds")) %>% 
   drop_na() 
@@ -38,7 +38,6 @@ na_counts <- dmf_train %>%
 
 # Print the result
 print(na_counts)
-
 ```
 
 
@@ -227,9 +226,6 @@ ggsave(plot = variance_explained_plot, filename = here("figures/reserve/variance
 
 
 ```{r}
-
-# ggsave(plot = variable_importance, filename = here("figures/reserve/variable_importance_dmf.png"), height = 8, width = 7)
-
 var_importance_df <- perform_validation(dmf_train, dmf_holdout, "death_age", dmf_train %>% select(-death_age, -histid) %>% colnames()) %>%
   arrange(desc(r_squared)) %>%
   mutate(feature = case_when(
@@ -323,40 +319,75 @@ combined_plot_dmf <- cowplot::plot_grid(top_panel, variable_importance, labels =
 ggsave(plot = combined_plot_dmf, filename = here("figures/03_combined_plot_dmf.png"), width = 14, height = 7)
 ```
 
-## 3-predictor model 
-
 ```{r}
-## fit lm model 
-simple_3predictor_model <- lm(death_age ~ as.factor(educ_yrs) + incwage_recode + as.factor(presgl_recode), data = dmf_train)
+# Combine all three summaries
+viz_df <- bind_rows(
+  df %>%
+    bind_cols(dmf_holdout) %>%
+        filter(race_black_recode == 1 | race_white_recode == 1) %>% 
+    group_by(group = if_else(race_black_recode == 1, "Black", "White")) %>%
+    summarize(
+      `R²` = calc_r2(observed_death_age, superlearner),
+      `Mean Absolute Error (MAE)` = calc_mae(observed_death_age, superlearner),
+      `Root Mean Squared Error (RMSE)` = calc_rmse(observed_death_age, superlearner),
+      `Correlation` = cor(superlearner, observed_death_age, use = "complete.obs"),
+      .groups = "drop"
+    ) %>%
+    mutate(category = "Race"),
+  
+  df %>%
+    bind_cols(dmf_holdout) %>%
+    group_by(group = if_else(educ_yrs > median(educ_yrs, na.rm = TRUE), "High Educ.", "Low Educ.")) %>%
+    summarize(
+      `R²` = calc_r2(observed_death_age, superlearner),
+      `Mean Absolute Error (MAE)` = calc_mae(observed_death_age, superlearner),
+      `Root Mean Squared Error (RMSE)` = calc_rmse(observed_death_age, superlearner),
+      `Correlation` = cor(superlearner, observed_death_age, use = "complete.obs"),
+      .groups = "drop"
+    ) %>%
+    mutate(category = "Education"),
+  
+  df %>%
+    bind_cols(dmf_holdout) %>%
+    group_by(group = if_else(incwage_recode > median(incwage_recode, na.rm = TRUE), "High Inc.", "Low Inc.")) %>%
+    summarize(
+      `R²` = calc_r2(observed_death_age, superlearner),
+      `Mean Absolute Error (MAE)` = calc_mae(observed_death_age, superlearner),
+      `Root Mean Squared Error (RMSE)` = calc_rmse(observed_death_age, superlearner),
+      `Correlation` = cor(superlearner, observed_death_age, use = "complete.obs"),
+      .groups = "drop"
+    ) %>%
+    mutate(category = "Income")
+)
 
-## make predictions 
-predictions <- predict(simple_3predictor_model, newdata = dmf_holdout)
+# Plot metrics
+metrics_subgroup_plot <- viz_df %>%
+  pivot_longer(c(`R²`, `Mean Absolute Error (MAE)`, `Root Mean Squared Error (RMSE)`, `Correlation`), names_to = "metric", values_to = "value") %>%
+  ggplot(aes(x = group, y = value)) +
+  geom_col(position = "dodge", color = "black", fill = "grey") +
+  facet_wrap(~ metric, scales = "free_y") +
+  labs(x = NULL, y = NULL) +
+  theme_cowplot() +
+  scale_x_discrete(limits = c("Black", "White", "Low Educ.", "High Educ.", "Low Inc.", "High Inc."))  + 
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) + 
+  theme(
+    legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "white", color = "black", linewidth = 0.8),
+    strip.text = element_text(size = 11, face = "bold", color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    panel.background = element_rect(fill = "#f9f9f9", color = NA),
+    panel.grid = element_line(color = "grey95"),
+    panel.spacing = unit(1.5, "lines"),
+    legend.justification = "center",  # centers the whole legend box
+    legend.title = element_text(size = 13, hjust = 0.5, vjust = 1, margin = margin(b = 4)),
+    legend.text = element_text(size = 11)
+  )# adds 15% headroom
 
-## calculate r^2
-cor(predictions, dmf_holdout$death_age)^2
 
-# Actual outcomes
-actual <- dmf_holdout$death_age
-
-# Predictions from your model
-# predictions <- model_predictions  # assuming predictions are stored in this variable
-
-# Calculate the Total Sum of Squares (SST)
-sst <- sum((actual - mean(actual))^2)
-
-# Calculate the Residual Sum of Squares (SSR)
-ssr <- sum((actual - predictions)^2)
-
-# Calculate R-squared
-r_squared <- 1 - (ssr / sst)
-
-# Print R-squared
-print(r_squared)
+ggsave(plot = metrics_subgroup_plot, filename = here("figures", "metrics_subgroup_plot.png"), width = 9, height = 6, bg = "white")
 ```
 
-
-
-
+## Variable importance from Permutation 
 
 ```{r}
 # # Calculate variable importance using permutation
@@ -440,135 +471,5 @@ print(r_squared)
 # 
 # ## save plot
 # ggsave(plot = variable_importance, filename = here("figures/variable_importance_dmf.png"), height = 8, width = 7)
-```
-
-
-```{r}
-calc_r2 <- function(actual, predicted) {
-  ok <- stats::complete.cases(actual, predicted)
-  actual <- actual[ok]; predicted <- predicted[ok]
-
-  sst <- sum((actual - mean(actual))^2)
-  ssr <- sum((actual - predicted)^2)   # <-- use 'predicted' here
-  1 - ssr / sst
-}
-```
-
-
-```{r}
-df %>% 
-  bind_cols(dmf_holdout) %>% 
- # group_by(race_black_recode) %>% 
-  summarize(r2 = calc_r2(superlearner, observed_death_age), cor(superlearner, observed_death_age))
-
-calc_r2(dmf_holdout$death_age, df$superlearner)
-
-df %>% 
-  bind_cols(dmf_holdout) %>% 
-  group_by() %>% 
-  summarize(r2 = calc_r2(superlearner, observed_death_age), cor(superlearner, observed_death_age))
-
-df %>%
-  bind_cols(dmf_holdout) %>%
-    group_by(race_black_recode) %>% 
-  summarize(
-    r2  = calc_r2(observed_death_age, superlearner),
-        mae  = calc_mae(observed_death_age, superlearner),
-        rmse  = calc_rmse(observed_death_age, superlearner),
-    cor = cor(superlearner, observed_death_age, use = "complete.obs")
-  )
-
-df %>%
-  bind_cols(dmf_holdout) %>%
-    group_by(educ_yrs > median(educ_yrs)) %>% 
-  summarize(
-    r2  = calc_r2(observed_death_age, superlearner),
-    mae  = calc_mae(observed_death_age, superlearner),
-        rmse  = calc_rmse(observed_death_age, superlearner),
-    cor = cor(superlearner, observed_death_age, use = "complete.obs")
-  )
-
-df %>%
-  bind_cols(dmf_holdout) %>%
-    group_by(incwage_recode > median(incwage_recode)) %>% 
-  summarize(
-    r2  = calc_r2(observed_death_age, superlearner),
-    mae  = calc_mae(observed_death_age, superlearner),
-        rmse  = calc_rmse(observed_death_age, superlearner),
-    cor = cor(superlearner, observed_death_age, use = "complete.obs")
-  )
-
-
-```
-
-
-
-```{r}
-# Combine all three summaries
-viz_df <- bind_rows(
-  df %>%
-    bind_cols(dmf_holdout) %>%
-        filter(race_black_recode == 1 | race_white_recode == 1) %>% 
-    group_by(group = if_else(race_black_recode == 1, "Black", "White")) %>%
-    summarize(
-      `R²` = calc_r2(observed_death_age, superlearner),
-      `Mean Absolute Error (MAE)` = calc_mae(observed_death_age, superlearner),
-      `Root Mean Squared Error (RMSE)` = calc_rmse(observed_death_age, superlearner),
-      `Correlation` = cor(superlearner, observed_death_age, use = "complete.obs"),
-      .groups = "drop"
-    ) %>%
-    mutate(category = "Race"),
-  
-  df %>%
-    bind_cols(dmf_holdout) %>%
-    group_by(group = if_else(educ_yrs > median(educ_yrs, na.rm = TRUE), "High Educ.", "Low Educ.")) %>%
-    summarize(
-      `R²` = calc_r2(observed_death_age, superlearner),
-      `Mean Absolute Error (MAE)` = calc_mae(observed_death_age, superlearner),
-      `Root Mean Squared Error (RMSE)` = calc_rmse(observed_death_age, superlearner),
-      `Correlation` = cor(superlearner, observed_death_age, use = "complete.obs"),
-      .groups = "drop"
-    ) %>%
-    mutate(category = "Education"),
-  
-  df %>%
-    bind_cols(dmf_holdout) %>%
-    group_by(group = if_else(incwage_recode > median(incwage_recode, na.rm = TRUE), "High Inc.", "Low Inc.")) %>%
-    summarize(
-      `R²` = calc_r2(observed_death_age, superlearner),
-      `Mean Absolute Error (MAE)` = calc_mae(observed_death_age, superlearner),
-      `Root Mean Squared Error (RMSE)` = calc_rmse(observed_death_age, superlearner),
-      `Correlation` = cor(superlearner, observed_death_age, use = "complete.obs"),
-      .groups = "drop"
-    ) %>%
-    mutate(category = "Income")
-)
-
-# Plot metrics
-metrics_subgroup_plot <- viz_df %>%
-  pivot_longer(c(`R²`, `Mean Absolute Error (MAE)`, `Root Mean Squared Error (RMSE)`, `Correlation`), names_to = "metric", values_to = "value") %>%
-  ggplot(aes(x = group, y = value)) +
-  geom_col(position = "dodge", color = "black", fill = "grey") +
-    geom_text(aes(label = round(value, 2)), vjust = -0.3, size = 3.5) +
-  facet_wrap(~ metric, scales = "free_y") +
-  labs(x = NULL, y = NULL) +
-  theme_cowplot() +
-  scale_x_discrete(limits = c("Black", "White", "Low Educ.", "High Educ.", "Low Inc.", "High Inc."))  + 
-  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) + 
-  theme(
-    legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1),
-    strip.background = element_rect(fill = "white", color = "black", linewidth = 0.8),
-    strip.text = element_text(size = 11, face = "bold", color = "black"),
-    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
-    panel.background = element_rect(fill = "#f9f9f9", color = NA),
-    panel.grid = element_line(color = "grey95"),
-    panel.spacing = unit(1.5, "lines"),
-    legend.justification = "center",  # centers the whole legend box
-    legend.title = element_text(size = 13, hjust = 0.5, vjust = 1, margin = margin(b = 4)),
-    legend.text = element_text(size = 11)
-  )# adds 15% headroom
-
-
-ggsave(plot = metrics_subgroup_plot, filename = here("figures", "metrics_subgroup_plot.png"), width = 9, height = 6, bg = "white")
 ```
 
