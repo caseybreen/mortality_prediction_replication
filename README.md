@@ -1,7 +1,7 @@
 ## Structured Inequality, Stochastic Lifespans: Demographic Perspectives on Predicting Individual-level Longevity
 
 [![OSF](https://img.shields.io/badge/OSF-project-blue)](https://osf.io/5e8wf/)
-[![Generic badge](https://img.shields.io/badge/R-4.3.1-orange.svg)](https://cran.r-project.org/bin/macosx/)
+[![Generic badge](https://img.shields.io/badge/R-4.5.1-orange.svg)](https://cran.r-project.org/bin/macosx/)
 [![Generic badge](https://img.shields.io/badge/License-GNU-<green>.svg)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 [![Generic badge](https://img.shields.io/badge/Maintained-Yes-red.svg)]()
 
