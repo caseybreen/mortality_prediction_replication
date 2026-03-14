@@ -8,7 +8,7 @@ The this repository includes code to replicate all figures and tables in the pap
 
 1. Clone this repository
 2. Download the required datasets and update paths (when necessary)
-3. Run the `00_run_all.Rmd` script, which will run all code (or run all scripts individually in any)
+3. Run the scrips in numeric order (or the `00_run_all.Rmd` script, which will run all scripts; please note this will take at least 24 hours.)
 
 
 #### Data 
@@ -26,12 +26,16 @@ After downloading the required data and updating paths, researchers can run the 
 
 Alternatively, researchers can run each script individually in any order. 
 
-- `01a_clean_prep_data_dmf` - this script creates the analysis final analysis file used for prediction. Specifically, this script selects variables from the 1940 Census and CenSoc-DMF file, drops missing values, and normalizes variables, and restricts to the birth cohort of 1910.   
-- `01b_clean_prep_data_numident` - this script creates the analysis final analysis file used for prediction. Specifically, this script selects variables from the 1940 Census and CenSoc-DMF file, drops missing values, and normalizes variables, and restricts to the birth cohort of 1910.   
-- `02a_predictions_dmf.Rmd` - Fits 8 different machine learning algorithms on the CenSoc-DMF training dataset and makes predictions on the CenSoc-DMF holdout dataset. 
-- `02b_predictions_numident.Rmd` - Fits 8 different machine learning algorithms on the CenSoc-Numident training dataset and makes predictions on the CenSoc-Numident holdout dataset. 
-- `03_sample_representativeness.Rmd` - creates a figure comparing the composition of our linked sample to the composition of the 1940 Census.  
-- `04_aggregate_code_plot.Rmd` - group-level mortality disparities in the CenSoc-DMF
+- `01_clean_prep_data_dmf.Rmd` - Prep CenSoc-DMF data for modeling. Selects variables from the 1940 Census and CenSoc-DMF file, drops missing values, and recodes variables, and restricts to the birth cohort of 1910.   
+- `02_clean_prep_data_numident.Rmd` - Prep CenSoc-Numident data for modeling. Selects variables from the 1940 Census and CenSoc-DMF file, drops missing values, and recodes variables, and restricts to the birth cohort of 1910.   
+- `03_predictions_dmf.Rmd` - Fits an ensemble machine learning algorithm on the CenSoc-DMF training dataset and makes predictions on the CenSoc-DMF holdout dataset. 
+- `04_predictions_numident.Rmd` - Fits an ensemble machine learning algorithm on the CenSoc-Numident training dataset and makes predictions on the CenSoc-Numident holdout dataset. 
+- `05_descriptive_disparities.Rmd` - Descriptive group-level differences in mortality in the CenSoc-DMF
+- `06_sample_representativeness.Rmd` - Creates a figure comparing the composition of our linked sample to the composition of the 1940 Census. 
+- `07_period_prediction.Rmd` - Make predictions across many age classes for death in the next 5 years 
+- `08_cohort_specific_analysis.Rmd` - Redo main analysis for each birth cohort from 1900-1920 separately
+
+
 
 ### Authors
 

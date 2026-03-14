@@ -1,16 +1,11 @@
 ---
-title: "Prep data"
-authors: Nathan Seltzer (UC Berkeley) and Casey Breen (UC Berkeley)
-date: October 10, 2022
+title: "Prep CenSoc-Numident"
+authors: Casey Breen and Nathan Seltzer
 ---
 
 ## Description
 
-Prep data for the machine learning 
-
-(a) Import Data
-(b) Clean Data
-(c) Recode Variables 
+In this notebook, we prepare the CenSoc-Numident for our model. This involves reading in the full linked CenSoc-Numident file, restricting to the birth cohort of 1910, splitting it into a test/train set, and recoding variables.
 
 
 ```{r}

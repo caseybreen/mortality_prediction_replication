@@ -3,37 +3,25 @@ title: "Sample Representativeness"
 author: Casey Breen
 ---
 
-Summary: Compare the sample composition of 
+Summary: Compare the sample composition of our linked sample to the general population in the 1940 Census.
 
 ```{r}
-## library packages
-library(tidyverse) # for various helper functions, pipes, etc.
-library(data.table) # for quick import/export of data
-library(caret) # for ML model auto-tuning
-library(doParallel) # for parallel processing
-library(ipumsr) # for variable labels
-library(tidymodels) # for data partition
-library(here) # package for relative paths 
-
-## read in dmf file (train)
-dmf_train <- read_rds(file = here("data/censoc_dmf_train_data.rds")) %>%
-   janitor::clean_names()
-
-## read in dmf file (test)
-dmf_test <- read_rds(here("data/censoc_dmf_test_data.rds")) %>%
-   janitor::clean_names()
+## source custom functions 
+library(here)
+source("helpers.R")
 
 ## combine dmf file 
-dmf <- bind_rows(dmf_train, dmf_test) %>% 
+dmf <- read_csv(here("data", "censoc_dmf_v3_linked.csv"))  %>% 
+  janitor::clean_names() %>% 
   select(histid) %>% 
   mutate(in_sample = 1)
 
 ## read in 1940 census 
-census_1940 <- fread("/ipums-repo2019/1940/TSV/P.tsv", select = c("HISTID", "SERIALP", "AGE", "INCWAGE", "SEX", "EDUC", "RACE", "RELATE", "REGION", "MARST", "SEI")) %>% 
+census_1940 <- fread("~/workspace/data/P.tsv", select = c("HISTID", "SERIALP", "AGE", "INCWAGE", "SEX", "EDUC", "RACE", "RELATE", "MARST", "SEI")) %>% 
   janitor::clean_names()
 
 ## read in 1940 census household
-census_1940_h <- fread("/ipums-repo2019/1940/TSV/H.tsv", select = c("SERIAL", "STATEFIP", "OWNERSHP", "URBAN", "REGION")) %>% 
+census_1940_h <- fread("~/workspace/data/H.tsv", select = c("SERIAL", "STATEFIP", "OWNERSHP", "URBAN", "REGION")) %>% 
   janitor::clean_names()
 ```
 
@@ -54,16 +42,13 @@ census_1940_hh_vars <- census_1940_hh_vars %>%
 
 ## recode education variable to years of education
 census_1940_hh_vars <- census_1940_hh_vars %>% 
-  censocdev::recode_education(educ_var = "educ")
-
-## read data dictionary initiative (DDI) file with varnames and var labels 
-ipums_ddi <- ipumsr::read_ipums_ddi("/ipums-repo2019-1/fullcount.ddi.xml")
+  recode_education(educ_var = "educ")
 
 ## add on ipums value + variable labels  
-census_1940_hh_vars <- census_1940_hh_vars %>% 
-  janitor::clean_names(case = "all_caps") %>% 
-  ipumsr::ipums_collect(ipums_ddi, var_attrs = c("val_labels", "var_label", "var_desc")) %>% 
-  janitor::clean_names()
+# census_1940_hh_vars <- census_1940_hh_vars %>% 
+#   janitor::clean_names(case = "all_caps") %>% 
+#   ipumsr::ipums_collect(ipums_ddi, var_attrs = c("val_labels", "var_label", "var_desc")) %>% 
+#   janitor::clean_names()
 ```
 
 ## Recode variables 
@@ -183,7 +168,7 @@ combined_characteristics <- census_characteristics %>%
 
 ```{r}
 rep_plot <- combined_characteristics %>% 
-           ggplot() +
+  ggplot() +
    geom_segment(aes(xend=prop_conservative, x=prop_gen, y=value, yend=value),
                color='black', 
                alpha=0.5) +
@@ -202,6 +187,7 @@ rep_plot <- combined_characteristics %>%
         legend.box.background = element_rect(colour = "black"),
         legend.title=element_blank())
 
-ggsave(rep_plot, filename = here("figures/04_representativeness_plot.png"), height = 6, width = 6)
+ggsave(rep_plot, filename = here("figures/02_representativeness_plot.png"), height = 6, width = 6)
+ggsave(rep_plot, filename = here("figures/02_representativeness_plot.svg"), height = 6, width = 6)
 ```
 

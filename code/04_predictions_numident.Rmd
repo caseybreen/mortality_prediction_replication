@@ -5,22 +5,12 @@ author: Casey Breen
 
 Summary: 
 
-— On our training dataset, train machine learning algorithms to predict age of death using CenSoc-Numident mortality records.
-— On our test dataset, assess the performance of the machine learning algorithms on our hold-out datasets. 
+Summary: This notebook contains code to estimate the predictability of lifespan using the CenSoc-DMF data and machine learning models (specifically, an emsemble superlearner algorithm). On our training dataset, we train machine learning algorithms to predict age of death using CenSoc-DMF mortality records. On our test dataset, we assess the performance of the machine learning algorithms using popular model performance metrics (e.g., $R^2$). 
 
 ```{r}
-## library packages
+## source custom functions 
 library(here)
-library(data.table)
-library(knitr)
-library(kableExtra)
-library(tidyverse)
-library(origami)
-library(SuperLearner)
-library(sl3)
-library(doParallel)
-library(ggpubr)
-library(cowplot)
+source("helpers.R")
 
 ## parallel processing 
 ## Run this if parallel gets stuck and won't turn off
@@ -160,9 +150,6 @@ prediction_plots_superlearner <- df_long %>%
        x = "Actual Age of Death", 
        y = "Predicted Age of Death") + 
   theme_cowplot()
-
-ggsave(plot = prediction_plots, filename = here("figures/reserve/prediction_plots_numident.png"), height = 8, width = 8)
-
 ```
 
 
@@ -301,7 +288,6 @@ variance_explained_plot <- as.data.frame(cor(df)) %>%
        y = expression (R^2),
        title = bquote(bold("Algorithm Performance " (R^2))))
 
-ggsave(plot = variance_explained_plot, filename = here("figures/reserve/variance_explained_plot_numident.png"), height = 5, width = 8)
 ```
 
 
@@ -313,7 +299,7 @@ left_side <-  cowplot::plot_grid(variance_explained_plot, prediction_plots_super
 combined_plot <- cowplot::plot_grid(left_side, variable_importance, labels = c("", "C"), rel_widths = c(1.2, 1) )
 
 ## save aggregate plots 
-ggsave(plot = combined_plot, filename = here("figures/05_combined_plot_numident.png"), width = 14, height = 7)
+ggsave(plot = combined_plot, filename = here("figures/appendix_combined_plot_numident.png"), width = 14, height = 7)
 
 ```
 

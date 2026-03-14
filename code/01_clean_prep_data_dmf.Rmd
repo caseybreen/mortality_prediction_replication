@@ -1,29 +1,16 @@
 ---
-title: "Prep Data"
-authors: Nathan Seltzer (UC Berkeley) and Casey Breen (UC Berkeley)
-date: October 10, 2022
+title: "Prep CenSoc-DMF"
+authors: Casey Breen and Nathan Seltzer
 ---
 
 ## Description
 
-Prep data for the machine learning 
-
-(a) Import Data
-(b) Clean Data
-(c) Recode Variables 
+In this notebook, we prepare the CenSoc-DMF for our model. This involves reading in the full linked CenSoc-DMF file, restricting to the birth cohort of 1910, splitting it into a test/train set, and recoding variables.
 
 
 ```{r}
-## library packages
-library(tidyverse) # for various helper functions, pipes, etc.
-library(data.table) # for quick import/export of data
-library(caret) # for ML model auto-tuning
-library(doParallel) # for parallel processing
-library(ipumsr) # for variable labels
-library(tidymodels) # for data partition
-library(here) # path for files 
-
-## source custom functions 
+## source custom functions and library packages
+library(here)
 source("helpers.R")
 
 `%notin%` <- Negate(`%in%`)
@@ -180,31 +167,19 @@ dmf_linked_1910 <- dmf_linked_1910 %>%
 ## select predictors 
 
 ```{r}
+## select predictors 
 dmf_linked_1910_recode <- dmf_linked_1910 %>% 
   select(histid, nsibs, rent, renter_recode, hispan_recode, classwkr, nfams, nmothers, nfathers, ncouples, wkswork1, hrswork1, death_age, educ_yrs, incwage_recode, sei_recode, occscore_recode, numperhh_recode, presgl_recode, race_white_recode, race_black_recode, race_other_recode, metro_nometro_recode, metro_city_recode, metro_suburb_recode, marriage_married_recode, marriage_divorced_recode, marriage_widowed_recode, marriage_single_recode, classwkr_self_employed_recode, classwkr_wage_worker_recode, momloc_recode, migrate5_same_house_recode, migrate5_state_move_recode, migrate5_country_move_recode, migrate5_international_move_recode, urban_recode, labforce_recode, farm_recode, homeowner_recode, multgend_1gen_recode, multgend_2gen_recode, multgend_3gen_recode, empstatd_employed_recode,  statefip, countyicp) 
-```
 
-
-```{r}
+## drop values with NA 
 dmf_linked_1910_recode <- dmf_linked_1910_recode %>% drop_na()
 ```
 
 
-
-
 ```{r}
-## carry out recodes
-#dmf_linked_1910_recode <- dmf_linked_1910 %>% 
-#  recodes()
-
-## carry out recodes
-#dmf_linked_1910_recode <- dmf_linked_1910_recode %>% 
-#  drop_na()
-
-## normalize numeric variable 
+## standardize numeric variable to 0/1
 dmf_linked_1910_recode <- dmf_linked_1910_recode %>%
    mutate(across(!death_age & !histid & !statefip & !countyicp, normalize))
-#   
 
 ## select seeds
 set.seed(2232)
@@ -220,5 +195,4 @@ censoc_dmf_test_data <- rsample::testing(split)
 ## save data
 write_rds(x = censoc_dmf_train_data, file = here("data/censoc_dmf_train_data_new.rds"))
 write_rds(x = censoc_dmf_test_data, file = here("data/censoc_dmf_test_data_new.rds"))
-
 ```

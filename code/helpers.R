@@ -35,29 +35,27 @@ source_rmd = function(file, ...) {
   source(file = tmp_file, ...)
 }
 
-
-
-## recode data 
-recodes <- function(df) {
-  df2 <- df %>%
-    mutate(
-      # sex = factor(sex),
-      # marst = factor(ifelse(marst == 3, 4, marst)), # set separated to divorced
-      # race = factor(race),
-      # metro = factor(metro),
-      # hispan = factor(hispan),
-      # classwkr = factor(classwkr),
-      # labforce = factor(labforce),
-      # urban = factor(urban),
-      # farm = factor(farm),
-      # ownershp = factor(ownershp),
-      educd = ifelse(educd == 999, NA, educd),
-      incwage = ifelse(incwage == 999998 | incwage == 999999, NA, incwage),
-      rent = ifelse(rent == 9998 | rent == 9999, NA, rent)
-    )
-  
-  return(df2)
-}
+# ## recode data 
+# recodes <- function(df) {
+#   df2 <- df %>%
+#     mutate(
+#       # sex = factor(sex),
+#       # marst = factor(ifelse(marst == 3, 4, marst)), # set separated to divorced
+#       # race = factor(race),
+#       # metro = factor(metro),
+#       # hispan = factor(hispan),
+#       # classwkr = factor(classwkr),
+#       # labforce = factor(labforce),
+#       # urban = factor(urban),
+#       # farm = factor(farm),
+#       # ownershp = factor(ownershp),
+#       educd = ifelse(educd == 999, NA, educd),
+#       incwage = ifelse(incwage == 999998 | incwage == 999999, NA, incwage),
+#       rent = ifelse(rent == 9998 | rent == 9999, NA, rent)
+#     )
+#   
+#   return(df2)
+# }
 
 ## create missing model 
 missing_model_creator <- function(df) {

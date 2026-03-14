@@ -1,12 +1,14 @@
 ---
-title: "Sl3 Predictions -- DMF" 
+title: "Prediction on CenSoc-DMF" 
 author: Casey Breen
 ---
 
-Summary: 
+Summary: This notebook contains code to estimate the predictability of lifespan using the CenSoc-DMF data and machine learning models (specifically, an emsemble superlearner algorithm). On our training dataset, we train machine learning algorithms to predict age of death using CenSoc-DMF mortality records. On our test dataset, we assess the performance of the machine learning algorithms using popular model performance metrics (e.g., $R^2$). 
 
-— On our training dataset, train machine learning algorithms to predict age of death using CenSoc-DMF mortality records.
-— On our test dataset, assess the performance of the machine learning algorithms on our hold-out datasets. 
+This code will create: 
+
+* Figure 4
+* Online Appendix Figures
 
 ```{r}
 ## source custom functions 
@@ -26,10 +28,10 @@ cl <- makePSOCKcluster(8)
 registerDoParallel(cl)
  
 ## read in training and test datasets 
-dmf_train <- read_rds(file = here("data/censoc_dmf_train_data_new.rds")) %>% 
+dmf_train <- read_rds(file = here("data", "censoc_dmf_train_data_new.rds")) %>% 
   drop_na() 
 
-dmf_holdout <- read_rds(file = here("data/censoc_dmf_test_data_new.rds")) %>%
+dmf_holdout <- read_rds(file = here("data", "censoc_dmf_test_data_new.rds")) %>%
   drop_na() 
 
 # Calculate the number of NA values in each column of the dataframe
@@ -190,9 +192,6 @@ prediction_plots_superlearner <- df_long %>%
        x = "Actual Age of Death", 
        y = "Predicted Age of Death") + 
   theme_cowplot()
-
-## save plot 
-ggsave(plot = prediction_plots_superlearner, filename = here("figures/reserve/prediction_plots_superlearner_dmf.png"), height = 5, width = 8)
 ```
 
 ```{r}
@@ -217,9 +216,6 @@ variance_explained_plot <- calculate_r_squared_holdout(df, "observed_death_age")
   labs(x = "Algorithm",
        y = expression (R^2),
        title = bquote(bold("Algorithm Performance " (R^2))))
-
-##save plot 
-ggsave(plot = variance_explained_plot, filename = here("figures/reserve/variance_explained_plot_dmf.png"), height = 5, width = 8)
 
 ```
 
@@ -310,13 +306,14 @@ variable_importance <-  var_importance_df %>%
 
 ```{r}
 ## create top panel  
-top_panel <-  cowplot::plot_grid(variance_explained_plot, prediction_plots_superlearner, labels = "AUTO", nrow = 2)
+top_panel <-  cowplot::plot_grid(variance_explained_plot, prediction_plots_superlearner, labels = "auto", nrow = 2)
 
 ## combine panels 
-combined_plot_dmf <- cowplot::plot_grid(top_panel, variable_importance, labels = c("", "C"), rel_widths = c(1.2, 1))
+combined_plot_dmf <- cowplot::plot_grid(top_panel, variable_importance, labels = c("", "c"), rel_widths = c(1.2, 1))
 
 ## save models 
-ggsave(plot = combined_plot_dmf, filename = here("figures/03_combined_plot_dmf.png"), width = 14, height = 7)
+ggsave(plot = combined_plot_dmf, filename = here("figures/04_combined_plot_dmf.png"), width = 14, height = 7)
+ggsave(plot = combined_plot_dmf, filename = here("figures/04_combined_plot_dmf.svg"), width = 14, height = 7)
 ```
 
 ```{r}
@@ -384,10 +381,12 @@ metrics_subgroup_plot <- viz_df %>%
   )# adds 15% headroom
 
 
-ggsave(plot = metrics_subgroup_plot, filename = here("figures", "metrics_subgroup_plot.png"), width = 9, height = 6, bg = "white")
+ggsave(plot = metrics_subgroup_plot, filename = here("figures", "appendix_metrics_subgroup_plot.png"), width = 9, height = 6, bg = "white")
 ```
 
 ## Variable importance from Permutation 
+
+This takes a long time, so it is skipped by default. But it can be uncommented and ran. 
 
 ```{r}
 # # Calculate variable importance using permutation
@@ -470,6 +469,6 @@ ggsave(plot = metrics_subgroup_plot, filename = here("figures", "metrics_subgrou
 #        title = "Variable Importance")
 # 
 # ## save plot
-# ggsave(plot = variable_importance, filename = here("figures/variable_importance_dmf.png"), height = 8, width = 7)
+# ggsave(plot = variable_importance, filename = here("figures/appendix_variable_importance_permutation.png"), height = 8, width = 7)
 ```
 
